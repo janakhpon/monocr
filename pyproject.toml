@@ -1,0 +1,50 @@
+[project]
+name = "monocr"
+version = "0.1.0"
+description = "Optical Character Recognition for Mon text"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "janakhpon", email = "jnovaxer@gmail.com" }
+]
+license = { text = "MIT" }
+keywords = ["mon", "ocr", "text-recognition"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "pillow>=9.0.0",
+    "numpy>=1.21.0",
+    "click>=8.0.0",
+]
+
+
+[project.urls]
+Repository = "https://github.com/janakhpon/monocr"
+
+[project.scripts]
+monocr = "monocr.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+monocr = ["models/*"]
+

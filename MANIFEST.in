@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include example_simple.py
+recursive-include src/monocr *.py
+recursive-include src/monocr/models *.pt
+recursive-include tests *.py
+recursive-include demo *.py
+recursive-include demo *.png
+global-exclude __pycache__
+global-exclude *.py[co]
