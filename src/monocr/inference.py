@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Advanced inference utilities for Mon OCR
+advanced inference utilities for mon ocr
 """
 
 import os
@@ -10,108 +10,71 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 import json
-import logging
 from typing import List, Dict, Optional, Union
 
 from .ocr import MonOCR
 
 class MonOCRInference:
-    """Advanced Mon OCR inference with additional utilities"""
+    """advanced mon ocr inference with additional utilities"""
     
     def __init__(self, model_path: Optional[str] = None, model_type: str = "crnn"):
-        """
-        Initialize advanced Mon OCR inference
-        
-        Args:
-            model_path: Path to trained model file
-            model_type: Type of model ("crnn" or "trocr")
-        """
+        """initialize advanced mon ocr inference"""
         self.ocr = MonOCR(model_path, model_type)
-        self.logger = logging.getLogger(__name__)
     
     def predict_with_confidence(self, image: Union[str, Image.Image]) -> Dict[str, Union[str, float]]:
-        """
-        Predict text with confidence score
+        """predict text with confidence score"""
+        if isinstance(image, str):
+            image = Image.open(image).convert("L")
+        elif not isinstance(image, Image.Image):
+            raise ValueError("Image must be a file path or PIL Image")
         
-        Args:
-            image: Path to image file or PIL Image object
-            
-        Returns:
-            Dictionary with 'text' and 'confidence' keys
-        """
-        try:
-            text = self.ocr.predict(image)
-            # For now, return a placeholder confidence score
-            # In a full implementation, you'd calculate actual confidence
-            confidence = 0.95  # Placeholder
-            
-            return {
-                'text': text,
-                'confidence': confidence
-            }
-        except Exception as e:
-            self.logger.error(f"Error in prediction: {e}")
-            return {
-                'text': "",
-                'confidence': 0.0
-            }
+        # get prediction
+        predicted_text = self.ocr.predict(image)
+        
+        # calculate confidence (simplified)
+        confidence = self._calculate_confidence(image, predicted_text)
+        
+        return {
+            'text': predicted_text,
+            'confidence': confidence
+        }
+    
+    def _calculate_confidence(self, image: Image.Image, text: str) -> float:
+        """calculate confidence score (simplified implementation)"""
+        # simple confidence based on text length and image size
+        if not text:
+            return 0.0
+        
+        # normalize confidence based on text length and image dimensions
+        text_length = len(text)
+        image_area = image.width * image.height
+        
+        # simple heuristic: longer text on larger images = higher confidence
+        confidence = min(1.0, (text_length * 100) / image_area)
+        
+        return max(0.0, min(1.0, confidence))
     
     def batch_predict_with_confidence(self, images: List[Union[str, Image.Image]]) -> List[Dict[str, Union[str, float]]]:
-        """
-        Predict text with confidence for multiple images
-        
-        Args:
-            images: List of image paths or PIL Image objects
-            
-        Returns:
-            List of dictionaries with 'text' and 'confidence' keys
-        """
+        """predict text with confidence for multiple images"""
         results = []
         for image in images:
-            result = self.predict_with_confidence(image)
-            results.append(result)
+            try:
+                result = self.predict_with_confidence(image)
+                results.append(result)
+            except Exception as e:
+                results.append({
+                    'text': '',
+                    'confidence': 0.0
+                })
         
         return results
     
-    def process_document(self, image_path: str, output_path: Optional[str] = None) -> Dict[str, str]:
-        """
-        Process a document image and save results
-        
-        Args:
-            image_path: Path to document image
-            output_path: Path to save results (optional)
-            
-        Returns:
-            Dictionary with processing results
-        """
-        try:
-            # Load and process image
-            image = Image.open(image_path)
-            text = self.ocr.predict(image)
-            
-            results = {
-                'image_path': image_path,
-                'extracted_text': text,
-                'status': 'success'
-            }
-            
-            # Save results if output path provided
-            if output_path:
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(results, f, ensure_ascii=False, indent=2)
-            
-            return results
-            
-        except Exception as e:
-            error_result = {
-                'image_path': image_path,
-                'extracted_text': "",
-                'status': 'error',
-                'error': str(e)
-            }
-            
-            if output_path:
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(error_result, f, ensure_ascii=False, indent=2)
-            
-            return error_result
+    def save_results(self, results: List[Dict[str, Union[str, float]]], output_path: str):
+        """save prediction results to json file"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+    
+    def load_results(self, input_path: str) -> List[Dict[str, Union[str, float]]]:
+        """load prediction results from json file"""
+        with open(input_path, 'r', encoding='utf-8') as f:
+            return json.load(f)

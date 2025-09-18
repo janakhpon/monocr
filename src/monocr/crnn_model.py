@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CRNN Model Architecture for Mon OCR
+crnn model architecture for mon ocr
 """
 
 import torch
@@ -12,11 +12,11 @@ import os
 from typing import List
 
 class CRNN(nn.Module):
-    """CRNN model for Mon OCR - matches the trained model architecture"""
+    """crnn model for mon ocr"""
     
     def __init__(self, num_classes):
         super(CRNN, self).__init__()
-        # Enhanced CNN architecture for better capacity
+        # cnn architecture
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, 3, 1, 1),
             nn.ReLU(),
@@ -42,10 +42,10 @@ class CRNN(nn.Module):
             nn.Conv2d(512, 512, (4, 1), 1, 0),  # 4->1
             nn.ReLU(),
         )
-        # Two LSTM layers for better sequence modeling
+        # lstm layers
         self.lstm1 = nn.LSTM(512, 256, bidirectional=True, batch_first=True)
         self.lstm2 = nn.LSTM(512, 256, bidirectional=True, batch_first=True)
-        self.dropout = nn.Dropout(0.1)  # add dropout to prevent overfitting
+        self.dropout = nn.Dropout(0.1)
         self.fc = nn.Linear(512, num_classes)
 
     def forward(self, x):
@@ -54,29 +54,34 @@ class CRNN(nn.Module):
         assert h == 1, "CNN height must be 1"
         conv = conv.squeeze(2).permute(0, 2, 1)  # [B, W, C]
         
-        # Two LSTM layers for better sequence modeling
+        # lstm layers
         recurrent, _ = self.lstm1(conv)
         recurrent, _ = self.lstm2(recurrent)
         
-        # Apply dropout before final classification
+        # dropout and final classification
         recurrent = self.dropout(recurrent)
         out = self.fc(recurrent)
         return out  # [B, W, num_classes]
 
+
 def build_charset(corpus_dir: str) -> str:
-    """Build charset from corpus files"""
+    """build charset from corpus files"""
     charset = set()
-    txt_files = glob.glob(os.path.join(corpus_dir, "**/*.txt"), recursive=True)
     
-    for fpath in txt_files:
-        if os.path.getsize(fpath) == 0:
-            continue
-        try:
-            with open(fpath, encoding="utf-8") as f:
-                for line in f:
-                    charset.update(line.strip())
-        except Exception:
-            continue
+    # search for text files in corpus directory
+    for ext in ['*.txt']:
+        pattern = os.path.join(corpus_dir, '**', ext)
+        for file_path in glob.glob(pattern, recursive=True):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    charset.update(content)
+            except:
+                continue
     
-    charset_str = "".join(sorted(list(charset)))
+    # remove whitespace and control characters
+    charset = {c for c in charset if c.strip() and ord(c) >= 32}
+    
+    # sort for consistent ordering
+    charset_str = ''.join(sorted(charset))
     return charset_str
