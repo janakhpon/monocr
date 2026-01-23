@@ -40,15 +40,20 @@ git clone git@github.com:janakhpon/monocr.git
 cd monocr
 uv sync --dev
 
+# Test
+uv run demo/demo.py
+uv run python -m pytest tests/
+
 # Release workflow
 uv version --bump patch
 git add .
 git commit -m "bump version"
-git tag v0.1.5
+git tag v0.1.3
 git push origin main --tags
 ```
 
 ## Related tools
+
 - [mon_tokenizer](https://github.com/Code-Yay-Mal/mon_tokenizer)
 - [hugging face mon_tokenizer model](https://huggingface.co/janakhpon/mon_tokenizer)
 - [Mon corpus collection in unicode](https://github.com/MonDevHub/MonCorpusCollection)

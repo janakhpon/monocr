@@ -5,19 +5,18 @@ mon ocr - optical character recognition for mon text
 import os
 from pathlib import Path
 from .ocr import MonOCR
-from .inference import MonOCRInference
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __author__ = "janakhpon"
 __email__ = "jnovaxer@gmail.com"
 
-__all__ = ["MonOCR", "MonOCRInference", "read_text", "read_image", "read_folder"]
+__all__ = ["MonOCR", "read_text", "read_image", "read_folder"]
 
 
 def get_default_model_path():
     """get bundled model path"""
     package_dir = Path(__file__).parent
-    model_path = package_dir / "models" / "monocr_v1_best.pt"
+    model_path = package_dir / "models" / "monocr_v2_best.pt"
     return str(model_path)
 
 
@@ -28,7 +27,7 @@ def _get_ocr():
     """get or create global ocr instance"""
     global _ocr_instance
     if _ocr_instance is None:
-        _ocr_instance = MonOCR()
+        _ocr_instance = MonOCR(get_default_model_path())
     return _ocr_instance
 
 

@@ -1,59 +1,81 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Mon OCR Demo
+Mon OCR - Demonstration Script
+Version 0.1.2
 """
 
 import os
+import sys
 from pathlib import Path
-from monocr import read_text, read_folder
+from typing import Dict
+
+try:
+    from monocr import read_text, read_folder, __version__
+except ImportError:
+    print("Error: MonOCR is not installed in the current environment.")
+    print("Please run 'uv sync' or 'pip install -e .'")
+    sys.exit(1)
+
+def print_header(title: str):
+    print(f"\n{'=' * 40}")
+    print(f" {title}")
+    print(f"{'=' * 40}")
 
 def main():
-    print("Mon OCR Demo")
-    print("=" * 20)
+    print_header(f"Mon OCR v{__version__} Demo")
     
     demo_dir = Path(__file__).parent
     images_dir = demo_dir / "images"
     
     if not images_dir.exists():
-        print("No demo images found")
+        print(f"Error: Demo images directory not found at {images_dir}")
         return
     
-    image_files = list(images_dir.glob("*.png")) + list(images_dir.glob("*.jpg"))
+    # Supported image extensions
+    valid_extensions = ('.png', '.jpg', '.jpeg')
+    image_files = [f for f in images_dir.iterdir() if f.suffix.lower() in valid_extensions]
     
     if not image_files:
-        print("No images found")
+        print(f"No valid images found in {images_dir}")
         return
     
-    print(f"Found {len(image_files)} images")
-    print()
+    print(f"[*] Found {len(image_files)} sample images.")
     
-    # Read single image
-    first_image = image_files[0]
+    # 1. Single Image Recognition
+    print_header("1. Single Image Recognition")
+    sample_img = image_files[0]
+    print(f"[*] Processing: {sample_img.name}")
+    
     try:
-        text = read_text(str(first_image))
-        print(f"Image: {first_image.name}")
-        print(f"Text: {text}")
+        text = read_text(str(sample_img))
+        print(f"[+] Result: {text}")
     except Exception as e:
-        print(f"Error: {e}")
-    print()
+        print(f"[!] Error processing image: {e}")
     
-    # Read all images
+    # 2. Batch Processing
+    print_header("2. Batch Processing (Folder)")
+    print(f"[*] Processing folder: {images_dir.name}/")
+    
     try:
-        results = read_folder(str(images_dir))
-        for filename, text in results.items():
-            print(f"{filename}: {text}")
+        results: Dict[str, str] = read_folder(str(images_dir))
+        for filename, text in sorted(results.items()):
+            if any(filename.lower().endswith(ext) for ext in valid_extensions):
+                print(f"  - {filename:30} : {text}")
     except Exception as e:
-        print(f"Error: {e}")
-    print()
+        print(f"[!] Error in batch processing: {e}")
     
-    print("Usage:")
-    print("  from monocr import read_text, read_folder")
-    print("  text = read_text('image.png')")
-    print("  results = read_folder('images/')")
-    print()
-    print("CLI:")
-    print("  monocr read image.png")
-    print("  monocr batch images/")
+    # Documentation & Quick Start
+    print_header("Quick Start Guide")
+    print("To use Mon OCR in your project:")
+    print("-" * 30)
+    print("from monocr import read_text")
+    print("text = read_text('path/to/image.png')")
+    print("\nCommand Line Interface:")
+    print("-" * 30)
+    print("monocr read path/to/image.png")
+    print("monocr batch path/to/folder/")
+    print("=" * 40)
 
 if __name__ == "__main__":
     main()
