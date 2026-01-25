@@ -231,8 +231,10 @@ class MonOCR:
         new_img.paste(pil_img, (0, 0))
         pil_img = new_img
         
-        # Normalize
-        img_norm = (np.array(pil_img).astype(np.float32) - IMAGE_NORM_MEAN) / IMAGE_NORM_STD
+        # Normalize to [-1, 1] as per training logic (utils.resize_and_pad)
+        # canvas is 0..255
+        img_arr = np.array(pil_img).astype(np.float32)
+        img_norm = img_arr / 127.5 - 1.0
 
         tensor = torch.from_numpy(img_norm).unsqueeze(0).unsqueeze(0).to(self.device)
         
