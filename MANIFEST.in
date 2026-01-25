@@ -1,11 +1,12 @@
 include README.md
 include LICENSE
 include pyproject.toml
-include example_simple.py
 recursive-include src/monocr *.py
-recursive-include src/monocr/models *.pt
+recursive-include src/monocr/models *.ckpt
+recursive-include src/monocr/assets *.txt
 recursive-include tests *.py
-recursive-include demo *.py
-recursive-include demo *.png
+recursive-include examples *.py
+recursive-include examples/images *.png
+recursive-include examples/images *.jpg
 global-exclude __pycache__
 global-exclude *.py[co]
