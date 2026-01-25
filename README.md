@@ -44,7 +44,7 @@ uv sync --dev
 uv version --bump patch
 git add .
 git commit -m "bump version"
-git tag v0.1.4
+git tag v0.1.10
 git push origin main --tags
 ```
 
