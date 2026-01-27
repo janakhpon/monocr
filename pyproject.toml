@@ -1,6 +1,6 @@
 [project]
 name = "monocr"
-version = "0.1.11"
+version = "0.1.12"
 description = "Optical Character Recognition for Mon text"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,7 +28,17 @@ dependencies = [
     "pillow>=9.0.0",
     "numpy>=1.21.0",
     "click>=8.0.0",
+    "opencv-python>=4.0.0",
+]
+
+[project.optional-dependencies]
+examples = ["pdf2image"]
+test = ["pytest"]
+
+[tool.uv]
+dev-dependencies = [
     "pytest>=9.0.2",
+    "pdf2image>=1.17.0",
 ]
 
 
