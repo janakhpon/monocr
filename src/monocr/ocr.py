@@ -8,6 +8,7 @@ from typing import List, Optional, Union, Dict
 from pathlib import Path
 
 from .model import MonOCRModel
+from .segmenter import LineSegmenter
 from .config import (
     TARGET_WIDTH, TARGET_HEIGHT, 
     IMAGE_NORM_MEAN, IMAGE_NORM_STD,
@@ -189,27 +190,13 @@ class MonOCR:
         return image.convert("L")
 
     def _segment_lines(self, image: Image.Image) -> List[Image.Image]:
-        """Split multi-line images using horizontal projection."""
-        img_arr = np.array(image)
-        binary = (img_arr < BINARY_THRESHOLD).astype(np.uint8)
-        
-        projection = np.sum(binary, axis=1)
-        is_line = projection > PROJECTION_THRESHOLD
-        
-        lines = []
-        start = None
-        for i, val in enumerate(is_line):
-            if val and start is None:
-                start = i
-            elif not val and start is not None:
-                if i - start > MIN_LINE_GAP:
-                    lines.append(image.crop((0, max(0, start-2), image.width, min(image.height, i+2))))
-                start = None
-        
-        if start is not None:
-            lines.append(image.crop((0, start, image.width, image.height)))
+        """Split multi-line images using robust LineSegmenter."""
+        if not hasattr(self, 'segmenter'):
+            self.segmenter = LineSegmenter()
             
-        return lines if lines else [image]
+        # Segmenter returns list of (crop, bbox)
+        segments = self.segmenter.segment(image)
+        return [crop for crop, bbox in segments]
 
     def _predict_single_line(self, image: Image.Image, return_confidence=False) -> Union[str, tuple]:
         """Core CRNN inference for a single line."""

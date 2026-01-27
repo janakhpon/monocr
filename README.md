@@ -10,28 +10,29 @@ pip install monocr | uv add monocr
 
 ## Quick Start
 
-```python
-from monocr import read_text, read_folder
+### Python Usage
 
-# Read text from a single image
-text = read_text("image.png")
+```python
+from monocr import MonOCR
+
+# Initialize
+model = MonOCR()
+
+# 1. Read an Image
+text = model.read_text("image.png")
 print(text)
 
-# Read all images in a folder
-results = read_folder("images/")
-for filename, text in results.items():
-    print(f"{filename}: {text}")
+# 2. Read with Confidence
+result = model.predict_with_confidence("image.png")
+print(f"Text: {result['text']}")
+print(f"Confidence: {result['confidence']:.2%}")
 ```
 
-## Command Line
+### Examples
 
-```bash
-# Read single image
-monocr read image.png
+See the [`examples/`](examples/) folder to learn more.
 
-# Process folder
-monocr batch images/ --output results.json
-```
+- **`examples/run_ocr.py`**: A complete script that can process a folder of images or read a full PDF book.
 
 ## Dev Setup
 
