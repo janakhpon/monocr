@@ -13,11 +13,12 @@ from .config import (
     TARGET_WIDTH, TARGET_HEIGHT, 
     IMAGE_NORM_MEAN, IMAGE_NORM_STD,
     PROJECTION_THRESHOLD, MIN_LINE_GAP, BINARY_THRESHOLD,
-    CHARSET_PATH, DEFAULT_MODEL_PATH
+    CHARSET_PATH, DEFAULT_MODEL_PATH, MODEL_URL, MODEL_SHA256
 )
 from .exceptions import (
     ModelNotFoundError, CharsetNotFoundError, ImageLoadError
 )
+from .download import get_cached_model_path
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class MonOCR:
         Initialize Mon OCR.
         
         Args:
-            model_path: Path to the .pt model file. If None, tries to load bundled default model.
+            model_path: Path to the .pt model file. If None, downloads default model.
             model_type: Type of model (defaults to 'crnn').
             device: Computing device ('cuda', 'cpu').
         """
@@ -44,12 +45,19 @@ class MonOCR:
         self.charset = None
         
         if model_path is None:
-            # Fallback to default bundled model
-            if os.path.exists(DEFAULT_MODEL_PATH):
-                logger.info(f"No model path provided. Loading default model from {DEFAULT_MODEL_PATH}")
-                model_path = str(DEFAULT_MODEL_PATH)
-            else:
-                logger.warning(f"Default model not found at {DEFAULT_MODEL_PATH}. Initialized without model.")
+            # Use default model - download if not cached
+            try:
+                from .config import CACHE_DIR, MODEL_FILENAME
+                model_path = str(get_cached_model_path(
+                    cache_dir=CACHE_DIR,
+                    model_name=MODEL_FILENAME,
+                    model_url=MODEL_URL,
+                    model_sha256=MODEL_SHA256
+                ))
+                logger.info(f"Using model: {model_path}")
+            except Exception as e:
+                logger.error(f"Failed to get model: {e}")
+                raise ModelNotFoundError(f"Failed to download or locate model: {e}")
         
         if model_path:
             self.load_model(model_path)

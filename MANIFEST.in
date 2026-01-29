@@ -2,7 +2,10 @@ include README.md
 include LICENSE
 include pyproject.toml
 recursive-include src/monocr *.py
-recursive-include src/monocr/models *.ckpt
+# Exclude model checkpoints - downloaded on demand
+exclude src/monocr/models/*.ckpt
+exclude src/monocr/models/*.pt
+exclude src/monocr/models/*.pth
 recursive-include src/monocr/assets *.txt
 recursive-include tests *.py
 recursive-include examples *.py
@@ -10,3 +13,4 @@ recursive-include examples/images *.png
 recursive-include examples/images *.jpg
 global-exclude __pycache__
 global-exclude *.py[co]
+global-exclude .DS_Store
