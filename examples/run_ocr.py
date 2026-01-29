@@ -11,39 +11,39 @@ from pdf2image import convert_from_path
 from monocr import MonOCR
 
 def process_image(ocr, img, name):
-    print(f"  Processing {name}...")
+    print(f"  Running {name}")
     try:
         result = ocr.predict_with_confidence(img)
         print(f"  Conf: {result['confidence']:.1%}")
-        # Print first line of result as preview if it's long
+        # Show first line if long
         text = result['text'].strip()
         lines = text.split('\n')
-        print(f"  Text: {lines[0] if lines else '[No Text]'}")
+        print(f"  Text: {lines[0] if lines else '[Empty]'}")
         if len(lines) > 1:
-            print(f"        ... ({len(lines)-1} more lines)")
+            print(f"        ... ({len(lines)-1} more)")
     except Exception as e:
-        print(f"  Error: {e}")
+        print(f"  Failed: {e}")
 
 def main():
     print("-" * 60)
-    print("Mon OCR Inference (Images & PDFs)".center(60))
+    print("Mon OCR (Images & PDFs)".center(60))
     print("-" * 60)
     
-    # Initialize
+    # Init OCR
     try:
         ocr = MonOCR()
-        print(f"Model loaded on {ocr.device}")
+        print(f"Ready on {ocr.device}")
     except Exception as e:
-        print(f"Failed to load model: {e}")
+        print(f"Init failed: {e}")
         sys.exit(1)
     
-    # Setup images directory
+    # Find files
     images_dir = Path(__file__).parent / "images"
     if not images_dir.exists():
-        print(f"Images directory not found: {images_dir}")
+        print(f"No folder: {images_dir}")
         return
 
-    # Gather files
+    # Collect files
     files = sorted(
         list(images_dir.glob("*.png")) + 
         list(images_dir.glob("*.jpg")) + 
@@ -52,23 +52,23 @@ def main():
     )
     
     if not files:
-        print("No images or PDFs found to process.")
+        print("No files")
         return
 
-    print(f"Found {len(files)} files.\n")
+    print(f"Found {len(files)} files\n")
     
     for f in files:
         print(f"File: {f.name}")
         
         if f.suffix.lower() == '.pdf':
             try:
-                print(f"  Converting PDF pages...")
+                print(f"  Converting PDF")
                 pages = convert_from_path(str(f))
-                print(f"  PDF has {len(pages)} pages.")
+                print(f"  {len(pages)} pages")
                 for i, page in enumerate(pages, 1):
                     process_image(ocr, page, f"Page {i}")
             except Exception as e:
-                print(f"  Failed to process PDF: {e}")
+                print(f"  PDF failed: {e}")
         else:
             # Regular Image
             process_image(ocr, str(f), "Image")

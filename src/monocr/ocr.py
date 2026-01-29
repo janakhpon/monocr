@@ -61,7 +61,7 @@ class MonOCR:
             
         logger.info(f"Loading model from {model_path}")
         try:
-            checkpoint = torch.load(model_path, map_location=self.device)
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
         except Exception as e:
             raise ModelNotFoundError(f"Failed to load checkpoint: {e}")
         
