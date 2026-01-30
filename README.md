@@ -33,6 +33,7 @@ print(f"Confidence: {result['confidence']:.2%}")
 See the [`examples/`](examples/) folder to learn more.
 
 - **`examples/run_ocr.py`**: A complete script that can process a folder of images or read a full PDF book.
+- Or a demo notebook to play around with the package [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb)
 
 ### CLI Usage
 
@@ -48,16 +49,6 @@ monocr batch folder/path
 # Manually download the model
 monocr download
 ```
-
-## Related Tools
-
-- [mon_tokenizer](https://github.com/Code-Yay-Mal/mon_tokenizer)
-- [hugging face mon_tokenizer model](https://huggingface.co/janakhpon/mon_tokenizer)
-- [Mon corpus collection in unicode](https://github.com/MonDevHub/MonCorpusCollection)
-
-## License
-
-MIT - do whatever you want with it.
 
 ## Dev Setup
 
@@ -89,3 +80,7 @@ git push origin main --tags
 
 - [monocr on pypi](https://pypi.org/project/monocr/)
 - [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
+
+## License
+
+MIT - do whatever you want with it.
