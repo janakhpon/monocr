@@ -13,7 +13,7 @@ from .config import (
     TARGET_WIDTH, TARGET_HEIGHT, 
     IMAGE_NORM_MEAN, IMAGE_NORM_STD,
     PROJECTION_THRESHOLD, MIN_LINE_GAP, BINARY_THRESHOLD,
-    CHARSET_PATH, DEFAULT_MODEL_PATH, MODEL_URL, MODEL_SHA256
+    CHARSET_PATH, DEFAULT_MODEL_PATH
 )
 from .exceptions import (
     ModelNotFoundError, CharsetNotFoundError, ImageLoadError

@@ -72,10 +72,7 @@ uv sync --dev
 To update the model weights:
 
 ```bash
-# 1. Login to HF
 hf auth login
-
-# 2. Upload from your local model folder
 hf upload janakhpon/monocr path/to/model_dir --repo-type model
 ```
 
@@ -83,8 +80,12 @@ hf upload janakhpon/monocr path/to/model_dir --repo-type model
 
 ```bash
 uv version --bump patch
+uv build
 git add .
 git commit -m "bump version"
-git tag v0.1.16
+git tag v0.1.17
 git push origin main --tags
 ```
+
+- [monocr on pypi](https://pypi.org/project/monocr/)
+- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
