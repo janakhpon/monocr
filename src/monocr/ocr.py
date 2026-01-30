@@ -45,19 +45,23 @@ class MonOCR:
         self.charset = None
         
         if model_path is None:
-            # Use default model - download if not cached
-            try:
-                from .config import CACHE_DIR, MODEL_FILENAME
-                model_path = str(get_cached_model_path(
-                    cache_dir=CACHE_DIR,
-                    model_name=MODEL_FILENAME,
-                    model_url=MODEL_URL,
-                    model_sha256=MODEL_SHA256
-                ))
-                logger.info(f"Using model: {model_path}")
-            except Exception as e:
-                logger.error(f"Failed to get model: {e}")
-                raise ModelNotFoundError(f"Failed to download or locate model: {e}")
+            # check for model in package (dev env)
+            local_model = Path(__file__).parent / "models" / "monocr.ckpt"
+            if local_model.exists():
+                model_path = str(local_model)
+                logger.info(f"found local model in package: {model_path}")
+            else:
+                # use default model - download if not cached
+                try:
+                    from .config import HF_REPO_ID, HF_FILENAME
+                    model_path = str(get_cached_model_path(
+                        repo_id=HF_REPO_ID,
+                        filename=HF_FILENAME
+                    ))
+                    logger.info(f"using cached model at {model_path}")
+                except Exception as e:
+                    logger.error(f"cannot get model, error: {e}")
+                    raise ModelNotFoundError(f"cannot download or find model: {e}")
         
         if model_path:
             self.load_model(model_path)
@@ -81,36 +85,36 @@ class MonOCR:
             self.charset = None
 
         if self.charset is None:
-            logger.warning("Charset not found in checkpoint. Attempting fallback.")
+            logger.warning("charset not found in checkpoint. trying fallback.")
             if os.path.exists(CHARSET_PATH):
                 try:
                     with open(CHARSET_PATH, "r", encoding="utf-8") as f:
                         self.charset = f.read().strip()
-                    logger.info(f"Loaded charset from {CHARSET_PATH}")
+                    logger.info(f"loaded charset from {CHARSET_PATH}")
                 except Exception as e:
-                    logger.error(f"Failed to read charset file: {e}")
+                    logger.error(f"cannot read charset file: {e}")
             
         if self.charset is None:
-            raise CharsetNotFoundError("Model checkpoint is missing charset information and valid_chars.txt not found.")
+            raise CharsetNotFoundError("model checkpoint missing charset and valid_chars.txt not found.")
 
-        # Versatile size handling
+        # versatile size handling
         num_classes = len(self.charset) + 1
         if 'fc.weight' in state_dict:
             ckpt_classes = state_dict['fc.weight'].size(0)
             if ckpt_classes != num_classes:
-                logger.warning(f"Model checkpoint has {ckpt_classes} classes, but charset has {len(self.charset)} (+1={num_classes}).")
+                logger.warning(f"model checkpoint has {ckpt_classes} classes, but charset has {len(self.charset)} (+1={num_classes}). mismatch.")
                 if ckpt_classes < num_classes:
-                     logger.warning(f"Adjusting charset to match checkpoint size. {num_classes - ckpt_classes} characters will be ignored.")
+                     logger.warning(f"adjusting charset to match checkpoint size. {num_classes - ckpt_classes} chars will be ignored.")
                      self.charset = self.charset[:ckpt_classes-1]
                      num_classes = ckpt_classes
                 else:
-                     logger.warning("Checkpoint has MORE classes than charset. Unknown characters will be ignored during decoding.")
+                     logger.warning("checkpoint has MORE classes than charset. unknown chars will be ignored during decoding.")
                      num_classes = ckpt_classes
 
         self.model = MonOCRModel(num_classes=num_classes)
         self.model.load_state_dict(state_dict)
         self.model.to(self.device).eval()
-        logger.debug("Model loaded and ready.")
+        logger.debug("model loaded and ready.")
 
     def predict(self, image: Union[str, Image.Image, Path]) -> str:
         """Extract text from an image. Handles single and multi-line images."""

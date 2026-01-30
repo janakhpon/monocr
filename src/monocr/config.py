@@ -22,5 +22,5 @@ MODEL_FILENAME = "monocr.ckpt"
 DEFAULT_MODEL_PATH = CACHE_DIR / MODEL_FILENAME
 
 # Model download configuration
-MODEL_URL = "https://github.com/janakhpon/monocr/releases/download/v0.1.15/monocr.ckpt"
-MODEL_SHA256 = "485ebc4a04e450d2970621271839114048d13dd11601e77f76852e42f41c1184"
+HF_REPO_ID = "janakhpon/monocr"
+HF_FILENAME = "monocr.ckpt"

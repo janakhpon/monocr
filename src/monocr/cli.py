@@ -3,7 +3,8 @@ import click
 import logging
 import sys
 from .ocr import MonOCR
-from .config import DEFAULT_MODEL_PATH
+from .config import DEFAULT_MODEL_PATH, HF_REPO_ID, HF_FILENAME
+from .download import get_cached_model_path
 from .exceptions import MonOCRError
 
 @click.group()
@@ -35,6 +36,17 @@ def read(image_path, confidence):
         sys.exit(1)
     except Exception as e:
         logging.critical(f"Unexpected error: {e}")
+        sys.exit(1)
+
+@main.command()
+def download():
+    """Download the model manually."""
+    try:
+        click.echo(f"downloading model from hugging face ({HF_REPO_ID})...")
+        path = get_cached_model_path(repo_id=HF_REPO_ID, filename=HF_FILENAME, force_download=True)
+        click.echo(f"model downloaded to: {path}")
+    except Exception as e:
+        logging.error(f"cannot download: {e}")
         sys.exit(1)
 
 @main.command()

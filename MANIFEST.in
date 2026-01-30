@@ -3,9 +3,9 @@ include LICENSE
 include pyproject.toml
 recursive-include src/monocr *.py
 # Exclude model checkpoints - downloaded on demand
-exclude src/monocr/models/*.ckpt
-exclude src/monocr/models/*.pt
-exclude src/monocr/models/*.pth
+global-exclude *.ckpt
+global-exclude *.pt
+global-exclude *.pth
 recursive-include src/monocr/assets *.txt
 recursive-include tests *.py
 recursive-include examples *.py

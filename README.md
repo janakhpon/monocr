@@ -34,22 +34,22 @@ See the [`examples/`](examples/) folder to learn more.
 
 - **`examples/run_ocr.py`**: A complete script that can process a folder of images or read a full PDF book.
 
-## Dev Setup
+### CLI Usage
+
+You can also use the command line interface:
 
 ```bash
-git clone git@github.com:janakhpon/monocr.git
-cd monocr
-uv sync --dev
+# Process a single image
+monocr read image.png
 
-# Release workflow
-uv version --bump patch
-git add .
-git commit -m "bump version"
-git tag v0.1.14
-git push origin main --tags
+# Process a folder of images
+monocr batch folder/path
+
+# Manually download the model
+monocr download
 ```
 
-## Related tools
+## Related Tools
 
 - [mon_tokenizer](https://github.com/Code-Yay-Mal/mon_tokenizer)
 - [hugging face mon_tokenizer model](https://huggingface.co/janakhpon/mon_tokenizer)
@@ -58,3 +58,33 @@ git push origin main --tags
 ## License
 
 MIT - do whatever you want with it.
+
+## Dev Setup
+
+```bash
+git clone git@github.com:janakhpon/monocr.git
+cd monocr
+uv sync --dev
+```
+
+### Update Model in Hugging Face
+
+To update the model weights:
+
+```bash
+# 1. Login to HF
+hf auth login
+
+# 2. Upload from your local model folder
+hf upload janakhpon/monocr path/to/model_dir --repo-type model
+```
+
+### Release Workflow
+
+```bash
+uv version --bump patch
+git add .
+git commit -m "bump version"
+git tag v0.1.16
+git push origin main --tags
+```
