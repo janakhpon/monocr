@@ -49,12 +49,6 @@ monocr batch folder/path
 monocr download
 ```
 
-## Related Tools
-
-- [mon_tokenizer](https://github.com/Code-Yay-Mal/mon_tokenizer)
-- [hugging face mon_tokenizer model](https://huggingface.co/janakhpon/mon_tokenizer)
-- [Mon corpus collection in unicode](https://github.com/MonDevHub/MonCorpusCollection)
-
 ## License
 
 MIT - do whatever you want with it.
@@ -67,15 +61,6 @@ cd monocr
 uv sync --dev
 ```
 
-### Update Model in Hugging Face
-
-To update the model weights:
-
-```bash
-hf auth login
-hf upload janakhpon/monocr path/to/model_dir --repo-type model
-```
-
 ### Release Workflow
 
 ```bash
@@ -86,6 +71,8 @@ git commit -m "bump version"
 git tag v0.1.17
 git push origin main --tags
 ```
+
+## Resources
 
 - [monocr on pypi](https://pypi.org/project/monocr/)
 - [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
