@@ -33,6 +33,7 @@ print(f"Confidence: {result['confidence']:.2%}")
 See the [`examples/`](examples/) folder to learn more.
 
 - **`examples/run_ocr.py`**: A complete script that can process a folder of images or read a full PDF book.
+- Or a demo notebook to play around with the package [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb)
 
 ### CLI Usage
 
@@ -49,17 +50,12 @@ monocr batch folder/path
 monocr download
 ```
 
-## License
+## Resources
 
-MIT - do whatever you want with it.
+- [monocr on pypi](https://pypi.org/project/monocr/)
+- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
 
-## Dev Setup
-
-```bash
-git clone git@github.com:janakhpon/monocr.git
-cd monocr
-uv sync --dev
-```
+## Development
 
 ### Release Workflow
 
@@ -68,11 +64,10 @@ uv version --bump patch
 uv build
 git add .
 git commit -m "bump version"
-git tag v0.1.17
+git tag v0.1.19
 git push origin main --tags
 ```
 
-## Resources
+## License
 
-- [monocr on pypi](https://pypi.org/project/monocr/)
-- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
+MIT - do whatever you want with it.
