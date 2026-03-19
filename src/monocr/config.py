@@ -2,7 +2,7 @@ from pathlib import Path
 
 # Image processing constants
 TARGET_WIDTH = 1024
-TARGET_HEIGHT = 64
+TARGET_HEIGHT = 128
 IMAGE_NORM_MEAN = 127.5
 IMAGE_NORM_STD = 127.5
 
@@ -18,9 +18,9 @@ CHARSET_PATH = ASSETS_DIR / "valid_chars.txt"
 
 # Model cache configuration
 CACHE_DIR = Path.home() / ".monocr" / "models"
-MODEL_FILENAME = "monocr.ckpt"
+MODEL_FILENAME = "monocr.onnx"
 DEFAULT_MODEL_PATH = CACHE_DIR / MODEL_FILENAME
 
 # Model download configuration
 HF_REPO_ID = "janakhpon/monocr"
-HF_FILENAME = "monocr.ckpt"
+HF_FILENAME = "onnx/monocr.onnx"

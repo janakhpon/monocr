@@ -95,12 +95,15 @@ class LineSegmenter:
             
         x_start, x_end = col_indices[0], col_indices[-1]
         
-        # Add padding
-        pad = 4
-        y1 = max(0, r_start - pad)
-        y2 = min(gray.shape[0], r_end + pad)
-        x1 = max(0, x_start - pad)
-        x2 = min(gray.shape[1], x_end + pad)
+        # Relative padding based on line height
+        h_raw = r_end - r_start
+        pad_y = int(np.ceil(h_raw * 0.20))
+        pad_x = int(np.ceil(h_raw * 0.15))
+        
+        y1 = max(0, r_start - pad_y)
+        y2 = min(gray.shape[0], r_end + pad_y)
+        x1 = max(0, x_start - pad_x)
+        x2 = min(gray.shape[1], x_end + pad_x)
         
         w = x2 - x1
         h = y2 - y1

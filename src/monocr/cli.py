@@ -30,7 +30,11 @@ def read(image_path, confidence):
             click.echo(f"Text:\n{res['text']}")
             click.echo(f"Confidence: {res['confidence']:.2%}")
         else:
-            click.echo(ocr.predict(image_path))
+            text = ocr.predict(image_path)
+            if text.strip():
+                click.echo(text)
+            else:
+                click.echo("Hmm, couldn't find any text there.")
     except MonOCRError as e:
         logging.error(f"OCR Error: {e}")
         sys.exit(1)
@@ -42,9 +46,9 @@ def read(image_path, confidence):
 def download():
     """Download the model manually."""
     try:
-        click.echo(f"downloading model from hugging face ({HF_REPO_ID})...")
+        click.echo("Checking for the latest model... wait ah.")
         path = get_cached_model_path(repo_id=HF_REPO_ID, filename=HF_FILENAME, force_download=True)
-        click.echo(f"model downloaded to: {path}")
+        click.echo(f"Done! Model is safe at: {path}")
     except Exception as e:
         logging.error(f"cannot download: {e}")
         sys.exit(1)
@@ -56,8 +60,17 @@ def batch(folder_path):
     try:
         ocr = MonOCR(str(DEFAULT_MODEL_PATH))
         results = ocr.read_from_folder(folder_path)
+        if not results:
+            click.echo("No images found in that folder, buddy.")
+            return
+        
+        click.echo(f"Found {len(results)} images. Starting now...")
         for path, text in sorted(results.items()):
-            click.echo(f"{path:30}: {text}")
+            if text.strip():
+                click.echo(f"--- {path} ---")
+                click.echo(text)
+                click.echo("")
+        click.echo("All done!")
     except MonOCRError as e:
         logging.error(f"Batch processing error: {e}")
         sys.exit(1)

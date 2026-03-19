@@ -74,7 +74,7 @@ uv version --bump patch
 uv build
 git add .
 git commit -m "bump version"
-git tag v0.1.17
+git tag v0.1.18
 git push origin main --tags
 ```
 
