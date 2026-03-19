@@ -50,22 +50,12 @@ monocr batch folder/path
 monocr download
 ```
 
-## Dev Setup
+## Resources
 
-```bash
-git clone git@github.com:janakhpon/monocr.git
-cd monocr
-uv sync --dev
-```
+- [monocr on pypi](https://pypi.org/project/monocr/)
+- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
 
-### Update Model in Hugging Face
-
-To update the model weights:
-
-```bash
-hf auth login
-hf upload janakhpon/monocr path/to/model_dir --repo-type model
-```
+## Development
 
 ### Release Workflow
 
@@ -74,12 +64,9 @@ uv version --bump patch
 uv build
 git add .
 git commit -m "bump version"
-git tag v0.1.18
+git tag v2.1.1
 git push origin main --tags
 ```
-
-- [monocr on pypi](https://pypi.org/project/monocr/)
-- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
 
 ## License
 
