@@ -2,7 +2,7 @@ from pathlib import Path
 
 # Image processing constants
 TARGET_WIDTH = 1024
-TARGET_HEIGHT = 128
+TARGET_HEIGHT = 160  # fallback only; the real height is read off the graph
 IMAGE_NORM_MEAN = 127.5
 IMAGE_NORM_STD = 127.5
 
@@ -29,7 +29,7 @@ DEFAULT_MODEL_PATH = CACHE_DIR / MODEL_FILENAME
 # under the bundled charset. Bump this deliberately, together with the charset
 # below and a release.
 HF_REPO_ID = "janakhpon/monocr"
-HF_REVISION = "a51be11"
+HF_REVISION = "d3d9d5e"
 HF_FILENAME = "onnx/monocr.onnx"
 
 # The charset published beside the weights at that same revision. It is

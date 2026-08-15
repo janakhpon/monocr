@@ -97,9 +97,9 @@ class TestCharsetContract(unittest.TestCase):
         with open(CHARSET_PATH, encoding="utf-8") as f:
             charset = f.read().strip("\n\r")
         self.assertEqual(
-            len(charset), 315,
+            len(charset), 276,
             "the bundled charset must match the model at config.HF_REVISION; "
-            "316 classes need exactly 315 characters",
+            "277 classes need exactly 276 characters",
         )
 
     def test_the_charset_starts_with_a_space_and_loading_keeps_it(self):
@@ -132,10 +132,10 @@ class TestCharsetContract(unittest.TestCase):
         from monocr.ocr import MonOCR
 
         class _Output:
-            shape = [1, "sequence", 316]
+            shape = [1, "sequence", 277]
 
         class _Input:
-            shape = [1, 1, 128, "width"]
+            shape = [1, 1, 160, 1024]
 
         class _Session:
             def get_outputs(self):
@@ -146,10 +146,10 @@ class TestCharsetContract(unittest.TestCase):
 
         ocr = MonOCR.__new__(MonOCR)
         ocr.session = _Session()
-        ocr.charset = "abc"  # 3 characters against 316 classes
+        ocr.charset = "abc"  # 3 characters against 277 classes
         with self.assertRaises(CharsetNotFoundError):
             ocr._check_contract()
 
-        ocr.charset = "x" * 315
+        ocr.charset = "x" * 276
         ocr._check_contract()  # must not raise
-        self.assertEqual(ocr.input_height, 128, "height comes off the graph")
+        self.assertEqual(ocr.input_height, 160, "height comes off the graph")

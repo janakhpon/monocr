@@ -8,7 +8,7 @@ from .ocr import MonOCR
 from .config import DEFAULT_MODEL_PATH
 from .exceptions import MonOCRError, ModelNotFoundError, ImageLoadError
 
-__version__ = "2.1.2"
+__version__ = "2.2.0"
 
 # Set up null handler to prevent "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())
