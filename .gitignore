@@ -210,3 +210,7 @@ __marimo__/
 *.onnx
 *.tflite
 src/monocr/models/monocr.json
+
+# macOS
+.DS_Store
+**/.DS_Store
