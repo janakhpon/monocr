@@ -14,7 +14,14 @@ __version__ = "2.1.2"
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 def get_default_model_path():
-    """get bundled v3 model path"""
+    """Where a downloaded model ends up on this machine.
+
+    Deprecated as an argument to MonOCR. huggingface_hub writes its own cache
+    layout under CACHE_DIR, so this flat path is not where the download lands —
+    passing it made MonOCR skip the download branch entirely and then fail to
+    find the file, or worse, load an unrelated model left there by an older
+    release. Call MonOCR() with no argument instead.
+    """
     return str(DEFAULT_MODEL_PATH)
 
 # Global instance for easy access
@@ -23,7 +30,8 @@ _ocr = None
 def _get_ocr():
     global _ocr
     if _ocr is None:
-        _ocr = MonOCR(get_default_model_path())
+        # No path: let MonOCR resolve and download the pinned revision.
+        _ocr = MonOCR()
     return _ocr
 
 def read_text(image):

@@ -3,7 +3,7 @@ import click
 import logging
 import sys
 from .ocr import MonOCR
-from .config import DEFAULT_MODEL_PATH, HF_REPO_ID, HF_FILENAME
+from .config import HF_CHARSET_FILENAME, HF_FILENAME, HF_REPO_ID, HF_REVISION
 from .download import get_cached_model_path
 from .exceptions import MonOCRError
 
@@ -24,7 +24,7 @@ def main(verbose):
 def read(image_path, confidence):
     """Read text from an image."""
     try:
-        ocr = MonOCR(str(DEFAULT_MODEL_PATH))
+        ocr = MonOCR()
         if confidence:
             res = ocr.predict_with_confidence(image_path)
             click.echo(f"Text:\n{res['text']}")
@@ -46,9 +46,23 @@ def read(image_path, confidence):
 def download():
     """Download the model manually."""
     try:
-        click.echo("Checking for the latest model... wait ah.")
-        path = get_cached_model_path(repo_id=HF_REPO_ID, filename=HF_FILENAME, force_download=True)
-        click.echo(f"Done! Model is safe at: {path}")
+        click.echo(f"Fetching the model pinned at {HF_REVISION}...")
+        path = get_cached_model_path(
+            repo_id=HF_REPO_ID,
+            filename=HF_FILENAME,
+            revision=HF_REVISION,
+            force_download=True,
+        )
+        # The charset belongs to the same revision as the weights; fetching one
+        # without the other is how a decode ends up in the wrong alphabet.
+        charset = get_cached_model_path(
+            repo_id=HF_REPO_ID,
+            filename=HF_CHARSET_FILENAME,
+            revision=HF_REVISION,
+            force_download=True,
+        )
+        click.echo(f"Done. Model: {path}")
+        click.echo(f"      Charset: {charset}")
     except Exception as e:
         logging.error(f"cannot download: {e}")
         sys.exit(1)
@@ -58,7 +72,7 @@ def download():
 def batch(folder_path):
     """Process a folder of images."""
     try:
-        ocr = MonOCR(str(DEFAULT_MODEL_PATH))
+        ocr = MonOCR()
         results = ocr.read_from_folder(folder_path)
         if not results:
             click.echo("No images found in that folder, buddy.")

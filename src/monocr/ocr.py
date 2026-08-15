@@ -46,11 +46,31 @@ class MonOCR:
             else:
                 # use default model - download if not cached
                 try:
-                    from .config import HF_REPO_ID, HF_FILENAME
+                    from .config import (
+                        HF_CHARSET_FILENAME,
+                        HF_FILENAME,
+                        HF_REPO_ID,
+                        HF_REVISION,
+                    )
                     model_path = str(get_cached_model_path(
                         repo_id=HF_REPO_ID,
-                        filename=HF_FILENAME
+                        filename=HF_FILENAME,
+                        revision=HF_REVISION,
                     ))
+                    # The charset that was published beside these weights. The
+                    # pair is what has to agree; a bundled charset from another
+                    # revision decodes every index to the wrong character.
+                    try:
+                        self._downloaded_charset_path = str(get_cached_model_path(
+                            repo_id=HF_REPO_ID,
+                            filename=HF_CHARSET_FILENAME,
+                            revision=HF_REVISION,
+                        ))
+                    except Exception as e:
+                        logger.warning(
+                            f"could not fetch the charset beside the model ({e}); "
+                            f"falling back to the bundled copy"
+                        )
                     logger.info(f"using cached model at {model_path}")
                 except Exception as e:
                     logger.error(f"cannot get model, error: {e}")
@@ -70,19 +90,55 @@ class MonOCR:
         except Exception as e:
             raise ModelNotFoundError(f"Failed to initialize ONNX session: {e}")
         
-        # Load charset from sidecar file (standard for v2.0)
-        if os.path.exists(CHARSET_PATH):
-            try:
-                with open(CHARSET_PATH, "r", encoding="utf-8") as f:
-                    self.charset = f.read().strip()
-                logger.info(f"loaded charset from {CHARSET_PATH}")
-            except Exception as e:
-                logger.error(f"cannot read charset file: {e}")
-        
+        # Prefer the charset published beside these weights; fall back to the
+        # bundled copy, which must match the pinned revision.
+        for source in (getattr(self, "_downloaded_charset_path", None), CHARSET_PATH):
+            if source and os.path.exists(source):
+                try:
+                    with open(source, "r", encoding="utf-8") as f:
+                        # strip("\n\r"), never strip(). The charset's first
+                        # character is U+0020, and a bare .strip() removes it —
+                        # which shifts every index by one and silently decodes
+                        # all 315 classes to the wrong character. That shipped.
+                        self.charset = f.read().strip("\n\r")
+                    logger.info(f"loaded charset from {source}")
+                    break
+                except Exception as e:
+                    logger.error(f"cannot read charset file {source}: {e}")
+
         if self.charset is None:
             raise CharsetNotFoundError(f"charset file not found at {CHARSET_PATH}")
 
+        self._check_contract()
         logger.debug("model loaded and ready.")
+
+    def _check_contract(self) -> None:
+        """Refuse a model and charset that cannot belong together.
+
+        CTC reserves index 0 for the blank, so a graph emitting N classes needs
+        exactly N-1 characters. When they disagree every decode is wrong and
+        nothing raises — the output is fluent-looking text in the wrong
+        alphabet. This package shipped that state: a 914-character file against
+        a 316-class model, every one of 315 indices mapping to the wrong
+        character.
+        """
+        output = self.session.get_outputs()[0]
+        num_classes = output.shape[-1]
+        if isinstance(num_classes, int) and num_classes != len(self.charset) + 1:
+            raise CharsetNotFoundError(
+                f"charset/model mismatch: the model emits {num_classes} classes, "
+                f"which needs a {num_classes - 1}-character charset, but the "
+                f"charset loaded has {len(self.charset)}. Refusing to decode — "
+                f"every index would map to the wrong character."
+            )
+
+        # Geometry comes off the graph, not from a constant. A model exported at
+        # a different input height silently produces garbage otherwise.
+        model_height = self.session.get_inputs()[0].shape[2]
+        if isinstance(model_height, int):
+            self.input_height = model_height
+        else:
+            self.input_height = TARGET_HEIGHT
 
     def predict(self, image: Union[str, Image.Image, Path]) -> str:
         """Extract text from an image. Handles single and multi-line images."""
@@ -179,7 +235,8 @@ class MonOCR:
 
     def _predict_single_line(self, image: Image.Image, return_confidence=False) -> Union[str, tuple]:
         """Core ONNX inference for a single line."""
-        target_w, target_h = TARGET_WIDTH, TARGET_HEIGHT
+        target_w = TARGET_WIDTH
+        target_h = getattr(self, "input_height", TARGET_HEIGHT)
         
         # Aspect-ratio preserving resize (v2.0 alignment: height to 128)
         w, h = image.size

@@ -79,3 +79,77 @@ class TestPackageAPI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCharsetContract(unittest.TestCase):
+    """The defect that shipped in 2.1.2, pinned so it cannot ship again.
+
+    The bundled charset was a 914-character file against a 316-class model, and
+    it was loaded with `.strip()`, which eats the leading U+0020 and shifts every
+    index by one. Measured on 2026-08-15: all 315 decodable indices mapped to the
+    wrong character, so the package returned fluent-looking Latin for Mon input
+    and raised nothing.
+    """
+
+    def test_the_bundled_charset_matches_the_pinned_model(self):
+        from monocr.config import CHARSET_PATH
+
+        with open(CHARSET_PATH, encoding="utf-8") as f:
+            charset = f.read().strip("\n\r")
+        self.assertEqual(
+            len(charset), 315,
+            "the bundled charset must match the model at config.HF_REVISION; "
+            "316 classes need exactly 315 characters",
+        )
+
+    def test_the_charset_starts_with_a_space_and_loading_keeps_it(self):
+        from monocr.config import CHARSET_PATH
+
+        raw = open(CHARSET_PATH, encoding="utf-8").read()
+        self.assertEqual(raw[0], " ", "the first class is U+0020")
+        self.assertEqual(
+            raw.strip("\n\r")[0], " ",
+            "strip('\\n\\r') must keep it; a bare .strip() removes it and shifts "
+            "every index by one",
+        )
+        self.assertNotEqual(
+            len(raw.strip()), len(raw.strip("\n\r")),
+            "if these are equal the leading space is already gone and this test "
+            "no longer guards anything",
+        )
+
+    def test_a_revision_is_pinned(self):
+        from monocr import config
+
+        self.assertTrue(
+            getattr(config, "HF_REVISION", None),
+            "an unpinned download resolves `main`, so any upload to the model "
+            "repository changes what installed copies fetch",
+        )
+
+    def test_a_mismatched_charset_is_refused_rather_than_decoded(self):
+        from monocr.exceptions import CharsetNotFoundError
+        from monocr.ocr import MonOCR
+
+        class _Output:
+            shape = [1, "sequence", 316]
+
+        class _Input:
+            shape = [1, 1, 128, "width"]
+
+        class _Session:
+            def get_outputs(self):
+                return [_Output()]
+
+            def get_inputs(self):
+                return [_Input()]
+
+        ocr = MonOCR.__new__(MonOCR)
+        ocr.session = _Session()
+        ocr.charset = "abc"  # 3 characters against 316 classes
+        with self.assertRaises(CharsetNotFoundError):
+            ocr._check_contract()
+
+        ocr.charset = "x" * 315
+        ocr._check_contract()  # must not raise
+        self.assertEqual(ocr.input_height, 128, "height comes off the graph")
