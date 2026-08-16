@@ -15,18 +15,24 @@ pip install monocr | uv add monocr
 ```python
 from monocr import MonOCR
 
-# Initialize
+# Initialize. Downloads the model pinned in config.HF_REVISION on first use.
 model = MonOCR()
 
-# 1. Read an Image
-text = model.read_text("image.png")
-print(text)
+# A page: segmented into lines, joined with newlines
+print(model.predict_page("page.png"))
 
-# 2. Read with Confidence
-result = model.predict_with_confidence("image.png")
+# A line crop: read whole, never split
+print(model.predict_line("line.png"))
+
+# With a confidence score
+result = model.predict_with_confidence("page.png")
 print(f"Text: {result['text']}")
 print(f"Confidence: {result['confidence']:.2%}")
 ```
+
+`predict` and `read_text` are aliases for `predict_page`. If you are passing
+single-line crops, call `predict_line` — it is the only path that cannot split
+one line into several.
 
 ### Examples
 
@@ -54,19 +60,31 @@ monocr download
 
 - [monocr on pypi](https://pypi.org/project/monocr/)
 - [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
+- [Changelog](CHANGELOG.md)
 
 ## Development
 
+```bash
+uv sync
+uv run pytest
+```
+
 ### Release Workflow
 
+The tag has to match `[project.version]` in `pyproject.toml`. The release
+workflow checks, and fails the build if it does not — this section used to
+show `git tag v2.2.3` next to a version of `2.2.0`, and nothing would have
+stopped that going out.
+
 ```bash
-uv version --bump patch
-uv build
-git add .
-git commit -m "bump version"
-git tag v2.2.3
-git push origin main --tags
+uv version --bump patch          # or minor / major
+git commit -am "release: $(uv version --short)"
+git tag "v$(uv version --short)"
+git push origin HEAD --tags
 ```
+
+Publishing runs from the tag, through GitHub Actions, using PyPI trusted
+publishing. It installs from the lockfile and runs the test suite first.
 
 ## License
 
