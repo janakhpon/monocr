@@ -215,7 +215,18 @@ src/monocr/models/monocr.json
 .DS_Store
 **/.DS_Store
 
-# A 177MB checkpoint with no reader. The branch that would load a local
-# model (ocr.py) looks for a .onnx, which is not there, and the package
-# downloads its weights from Hugging Face at the pinned revision.
-src/monocr/models/*.ckpt
+# Model weights, anywhere in the tree. They are downloaded from Hugging Face at
+# the revision pinned in config.py, so a copy committed here is dead weight, a
+# second source of truth for which weights a release uses, and a licensing
+# surface. src/monocr/models/monocr.ckpt was tracked until 2.3.0 — an LFS
+# pointer to 177MB that nothing loaded.
+#
+# .github/workflows/test.yml fails the build if any of these are tracked, so
+# this rule is enforced rather than trusted.
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.tflite
+*.mlmodel
+*.mlpackage/

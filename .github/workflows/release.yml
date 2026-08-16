@@ -1,16 +1,49 @@
+# Publishes to PyPI on a `v*` tag, via trusted publishing (OIDC) — no token to
+# store, leak or rotate.
+#
+# THE TESTS RUN BEFORE THE PUBLISH. Until 2.3.0 this workflow was checkout,
+# build, publish, with nothing in between, and the repository had no test
+# workflow either. 2.1.2 went out that way with a decoder that returned the
+# wrong character for every index in the alphabet.
 name: release
+
 on:
   push:
     tags:
       - "v*"
+
 permissions:
   contents: read
   id-token: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv build --no-sources
-      - run: uv publish --trusted-publishing always
+
+      # A tag that disagrees with pyproject.toml publishes the wrong number
+      # under the right name, and PyPI has no undo. The README told you to tag
+      # v2.2.3 for version 2.2.0 and nothing would have stopped it.
+      - name: Verify the tag matches the version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error title=Tag/version mismatch::tag v$TAG does not match pyproject version $PKG"
+            exit 1
+          fi
+          echo "tag and pyproject agree on $PKG"
+
+      - name: Install from the committed lockfile
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build
+        run: uv build --no-sources
+
+      - name: Publish
+        run: uv publish --trusted-publishing always

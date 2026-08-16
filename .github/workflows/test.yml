@@ -1,0 +1,100 @@
+# The repository had no test workflow at all until 2.3.0. Its only workflow was
+# `release`, and that one built and published without running anything — which
+# is how 2.1.2 reached PyPI with a decoder that mapped every index to the wrong
+# character, and stayed there.
+#
+# Nothing here needs the network or a 46MB model: the suite runs against a fake
+# onnxruntime session that reports the same two numbers off the graph that the
+# real one does.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared by requires-python, and the current release.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # --locked, not a plain sync: it fails when pyproject.toml has moved and
+      # uv.lock has not, rather than quietly resolving something else and
+      # testing a dependency set that no install will ever reproduce.
+      - name: Install from the committed lockfile
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  no-model-weights:
+    # Model weights must never be committed to this repository. They are
+    # downloaded from Hugging Face at the revision pinned in config.py, so a
+    # copy here is dead weight, a second answer to "which weights does this
+    # release use", and a licensing surface on a public repo.
+    #
+    # src/monocr/models/monocr.ckpt was tracked until 2.3.0: an LFS pointer to
+    # 177MB that no code path loaded. .gitignore lists the extensions; this is
+    # what makes the rule fail a build instead of relying on everyone
+    # remembering it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse tracked model weights
+        run: |
+          set -euo pipefail
+          tracked="$(git ls-files)"
+          found="$(printf '%s\n' "$tracked" \
+            | grep -iE '\.(ckpt|pt|pth|safetensors|onnx|tflite|mlmodel)$' || true)"
+          if [ -n "$found" ]; then
+            echo "::error title=Model weights are tracked::$(printf '%s' "$found" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "no tracked model weights"
+
+  import-on-a-slim-image:
+    # The claim behind opencv-python-headless, tested rather than asserted.
+    # cv2 is imported unconditionally by segmenter.py, so with the GUI build
+    # `import monocr` fails on any image lacking the X libraries OpenCV links
+    # against — 2.2.0 raises `ImportError: libxcb.so.1` here. python:3.12-slim
+    # is such an image; ubuntu-latest is not, so the pytest job above runs green
+    # either way and cannot catch this.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Build a wheel
+        run: uv build --wheel --no-sources
+
+      # The wheel is what users actually receive, so check it carries no weights
+      # even if something slipped past the tracking guard above.
+      - name: The wheel must ship no model weights
+        run: |
+          set -euo pipefail
+          contents="$(unzip -Z1 dist/*.whl)"
+          found="$(printf '%s\n' "$contents" \
+            | grep -iE '\.(ckpt|pt|pth|safetensors|onnx|tflite|mlmodel)$' || true)"
+          if [ -n "$found" ]; then
+            echo "::error title=Weights in the wheel::$(printf '%s' "$found" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "wheel carries no model weights"
+
+      - name: Import it where there is no libGL
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c '
+            set -e
+            pip install --quiet --disable-pip-version-check dist/*.whl
+            python -c "import monocr; print(\"imported\", monocr.__version__)"
+            python -c "import cv2; print(\"cv2 ok\")"
+          '
