@@ -1,6 +1,6 @@
 [project]
 name = "monocr"
-version = "2.2.0"
+version = "2.3.0"
 description = "Optical Character Recognition for Mon text"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,12 @@ dependencies = [
     "pillow>=9.0.0",
     "numpy>=1.21.0",
     "click>=8.0.0",
-    "opencv-python>=4.0.0",
+    # headless, not opencv-python. cv2 is imported unconditionally by
+    # segmenter.py, so the GUI build makes `import monocr` fail outright on any
+    # image missing the X libraries it links. MEASURED 2026-08-16 on
+    # python:3.12-slim: 2.2.0 raises ImportError: libxcb.so.1, 2.3.0 imports.
+    # Nothing in this package draws to a screen.
+    "opencv-python-headless>=4.0.0",
     "huggingface_hub>=0.16.0",
 ]
 
@@ -44,6 +49,9 @@ dev = [
 
 [project.urls]
 Repository = "https://github.com/janakhpon/monocr"
+Changelog = "https://github.com/janakhpon/monocr/blob/main/CHANGELOG.md"
+Issues = "https://github.com/janakhpon/monocr/issues"
+"Model card" = "https://huggingface.co/janakhpon/monocr"
 
 [project.scripts]
 monocr = "monocr.cli:main"

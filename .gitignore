@@ -214,3 +214,8 @@ src/monocr/models/monocr.json
 # macOS
 .DS_Store
 **/.DS_Store
+
+# A 177MB checkpoint with no reader. The branch that would load a local
+# model (ocr.py) looks for a .onnx, which is not there, and the package
+# downloads its weights from Hugging Face at the pinned revision.
+src/monocr/models/*.ckpt

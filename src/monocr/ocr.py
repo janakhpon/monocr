@@ -8,7 +8,8 @@ from pathlib import Path
 
 from .segmenter import LineSegmenter
 from .config import (
-    TARGET_WIDTH, TARGET_HEIGHT, 
+    IMAGE_NORM_MEAN, IMAGE_NORM_STD,
+    TARGET_WIDTH, TARGET_HEIGHT,
     CHARSET_PATH
 )
 from .exceptions import (
@@ -140,59 +141,77 @@ class MonOCR:
         else:
             self.input_height = TARGET_HEIGHT
 
-    def predict(self, image: Union[str, Image.Image, Path]) -> str:
-        """Extract text from an image. Handles single and multi-line images."""
-        if self.session is None:
-             raise RuntimeError("Model used before loading. Call load_model() first.")
+    def predict_line(self, image: Union[str, Image.Image, Path]) -> str:
+        """Read the whole image as a single text line, with no segmentation.
 
-        try:
-            img = self._prepare_image(image)
-        except Exception as e:
-            logger.error(f"Prediction failed during image preparation: {e}")
-            raise ImageLoadError(str(e))
-        
-        # Simple vertical check: if image is tall, try segmentation
-        if img.height > 100:
-            lines = self._segment_lines(img)
-        else:
-            lines = [img]
-        
+        Call this when you already have a line crop. It is the only path that
+        cannot split one line into several.
+        """
+        return self._predict_single_line(self._load(image))
+
+    def predict_page(self, image: Union[str, Image.Image, Path]) -> str:
+        """Segment the image into lines, read each, and join them with newlines."""
+        img = self._load(image)
         results = []
-        for line_img in lines:
+        for line_img in self._lines_of(img):
             text = self._predict_single_line(line_img)
             if text.strip():
                 results.append(text)
-                
         return "\n".join(results)
+
+    def predict(self, image: Union[str, Image.Image, Path]) -> str:
+        """Read text from an image. An alias for `predict_page`.
+
+        Until 2.3.0 this dispatched on ``img.height > 100`` — a constant that
+        the current model contradicts, since v3.5 takes a 160-pixel input, so a
+        line crop at native resolution was tall enough to be treated as a page.
+        There is no height that separates the two cases, so the choice is now
+        the caller's: `predict_line` for a crop, `predict_page` for a page.
+        """
+        return self.predict_page(image)
 
     def predict_with_confidence(self, image: Union[str, Image.Image, Path]) -> Dict[str, Union[str, float]]:
         """Predict text and return alongside a confidence score."""
-        if self.session is None:
-             raise RuntimeError("Model used before loading.")
+        img = self._load(image)
 
-        try:
-            img = self._prepare_image(image)
-        except Exception as e:
-             raise ImageLoadError(str(e))
-
-        if img.height > 100:
-            lines = self._segment_lines(img)
-        else:
-            lines = [img]
-        
         all_text = []
         confs = []
-        
-        for line_img in lines:
+
+        for line_img in self._lines_of(img):
             text, conf = self._predict_single_line(line_img, return_confidence=True)
             if text.strip():
                 all_text.append(text)
                 confs.append(conf)
-                
+
         return {
-            'text': "\n".join(all_text), 
+            'text': "\n".join(all_text),
             'confidence': sum(confs)/len(confs) if confs else 0.0
         }
+
+    def _load(self, image: Union[str, Image.Image, Path]) -> Image.Image:
+        """Check the session is up and turn the argument into a grayscale image."""
+        if self.session is None:
+            raise RuntimeError("Model used before loading. Call load_model() first.")
+        try:
+            return self._prepare_image(image)
+        except ImageLoadError:
+            raise
+        except Exception as e:
+            logger.error(f"Prediction failed during image preparation: {e}")
+            raise ImageLoadError(str(e))
+
+    def _lines_of(self, img: Image.Image) -> List[Image.Image]:
+        """The line crops to read, falling back to the whole image.
+
+        An empty segmentation used to return "" from predict, which reports
+        success for a failure — the caller cannot tell a blank page from a
+        segmenter that found nothing in a page full of text.
+        """
+        lines = self._segment_lines(img)
+        if not lines:
+            logger.debug("segmentation found no lines; reading the image whole")
+            return [img]
+        return lines
 
     # API Aliases and Batch Methods
     def read_text(self, image: Union[str, Image.Image, Path]) -> str:
@@ -253,7 +272,7 @@ class MonOCR:
         
         # Normalize to [-1.0, 1.0]
         img_arr = np.array(new_img).astype(np.float32)
-        img_norm = (img_arr / 127.5) - 1.0
+        img_norm = (img_arr - IMAGE_NORM_MEAN) / IMAGE_NORM_STD
         
         # Add channel and batch dimensions: [1, 1, 128, 1024]
         tensor = np.expand_dims(img_norm, axis=(0, 1))

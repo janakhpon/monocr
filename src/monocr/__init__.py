@@ -6,9 +6,29 @@ import logging
 from pathlib import Path
 from .ocr import MonOCR
 from .config import DEFAULT_MODEL_PATH
-from .exceptions import MonOCRError, ModelNotFoundError, ImageLoadError
+from .exceptions import (
+    MonOCRError,
+    ModelNotFoundError,
+    CharsetNotFoundError,
+    ImageLoadError,
+)
 
-__version__ = "2.2.0"
+# Kept equal to [project.version] in pyproject.toml. `monocr --version` reads
+# the installed metadata, not this string, so the two can drift apart silently —
+# tests/test_packaging.py is what stops that.
+__version__ = "2.3.0"
+
+__all__ = [
+    "MonOCR",
+    "MonOCRError",
+    "ModelNotFoundError",
+    "CharsetNotFoundError",
+    "ImageLoadError",
+    "read_text",
+    "read_folder",
+    "get_default_model_path",
+    "__version__",
+]
 
 # Set up null handler to prevent "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())

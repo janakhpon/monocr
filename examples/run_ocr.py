@@ -6,9 +6,11 @@ Supports Images and PDFs
 
 import sys
 from pathlib import Path
-from PIL import Image
-from pdf2image import convert_from_path
 from monocr import MonOCR
+
+# pdf2image is an optional extra (`pip install monocr[examples]`) and it needs
+# poppler on the machine. Importing it here made the whole script — including
+# the image path, which does not use it — fail on a plain install.
 
 def process_image(ocr, img, name):
     print(f"  Running {name}")
@@ -30,12 +32,17 @@ def main():
     print("-" * 60)
     
     # Init OCR
+    #
+    # `ocr.device` used to be printed here. MonOCR has no such attribute, so
+    # this raised AttributeError inside the try and the handler reported "Init
+    # failed" for an init that had in fact succeeded — the example the README
+    # points at could never run.
     try:
         ocr = MonOCR()
-        print(f"Ready on {ocr.device}")
     except Exception as e:
         print(f"Init failed: {e}")
         sys.exit(1)
+    print(f"Ready on {', '.join(ocr.providers)}")
     
     # Find files
     images_dir = Path(__file__).parent / "images"
@@ -62,6 +69,8 @@ def main():
         
         if f.suffix.lower() == '.pdf':
             try:
+                from pdf2image import convert_from_path
+
                 print(f"  Converting PDF")
                 pages = convert_from_path(str(f))
                 print(f"  {len(pages)} pages")

@@ -6,10 +6,13 @@ TARGET_HEIGHT = 160  # fallback only; the real height is read off the graph
 IMAGE_NORM_MEAN = 127.5
 IMAGE_NORM_STD = 127.5
 
-# Segmentation constants
-PROJECTION_THRESHOLD = 2
-MIN_LINE_GAP = 5
-BINARY_THRESHOLD = 200
+# Segmentation has no constants here on purpose. PROJECTION_THRESHOLD,
+# MIN_LINE_GAP and BINARY_THRESHOLD lived here until 2.3.0 describing an
+# algorithm this package does not run: LineSegmenter reads nothing from this
+# module and uses its own smoothing window, threshold ratio and minimum line
+# height, which have to stay equal to monocr-onnx's rather than to a local
+# constant. Three numbers that look authoritative and are never read are worse
+# than none.
 
 # Paths
 PACKAGE_ROOT = Path(__file__).parent
