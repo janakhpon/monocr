@@ -2,10 +2,40 @@
 
 Optical Character Recognition for Mon (mnw) text.
 
+Mon is classified as **vulnerable** in UNESCO's Atlas of the World's Languages
+in Danger. General OCR covers its *script* but not its *language*, and the
+difference is the reason this package exists.
+
+Mon is written in the Mon–Burmese script, so a Burmese recogniser will read a
+Mon page and return text. Google Cloud Vision lists Burmese (`my`, `Mymr`) as an
+experimental OCR language and has no entry for Mon; Cloud Translation and
+Google Translate's 2024 expansion both ship Burmese and not Mon; Tesseract's
+`Myanmar.traineddata` is a script model, which by design covers languages it was
+never trained on.
+
+What that misses is specific and checkable. Ten of the 276 characters this model
+emits are named for Mon in Unicode precisely because Burmese does not use them:
+`U+1028` MON E, `U+1033` MON II, `U+1034` MON O, and `U+105A`–`U+1060` (MON NGA,
+JHA, BBA, BBE, and the MON MEDIAL NA, MA and LA signs). A Burmese-trained model
+has no output class for any of them, so it emits the nearest Burmese glyph
+instead. The result is fluent-looking Burmese-Mon hybrid text with nothing
+raised — wrong in a way that is hard to notice unless you read Mon.
+
+This package is a Mon recogniser you can `pip install`, running locally on ONNX
+Runtime. It reads printed Mon: rendered pages and scans of them. Handwriting is
+out of scope. The held-out result and, more importantly, the four things it does
+not cover are on the [model card](https://huggingface.co/janakhpon/monocr).
+
 ## Installation
 
 ```bash
-pip install monocr | uv add monocr
+pip install monocr
+```
+
+or, in a uv project:
+
+```bash
+uv add monocr
 ```
 
 ## Quick Start
@@ -71,10 +101,9 @@ uv run pytest
 
 ### Release Workflow
 
-The tag has to match `[project.version]` in `pyproject.toml`. The release
-workflow checks, and fails the build if it does not — this section used to
-show `git tag v2.2.3` next to a version of `2.2.0`, and nothing would have
-stopped that going out.
+`pyproject.toml` holds the only version in the tree; `monocr.__version__` reads
+it back from the installed metadata. The tag has to match it, and the release
+workflow fails the build if it does not.
 
 ```bash
 uv version --bump patch          # or minor / major
@@ -82,6 +111,15 @@ git commit -am "release: $(uv version --short)"
 git tag "v$(uv version --short)"
 git push origin HEAD --tags
 ```
+
+Two things this section got wrong before, both caught by running it:
+
+- It showed `git tag v2.2.3` beside a version of `2.2.0`. Nothing would have
+  stopped that going out; `release.yml` now compares them.
+- These four commands alone used to leave a release broken. `__version__` was a
+  separate literal in `__init__.py`, `uv version --bump` does not touch it, and
+  the test that noticed ran *after* the tag was already pushed. The version is
+  derived now, so the commands above are the whole procedure.
 
 Publishing runs from the tag, through GitHub Actions, using PyPI trusted
 publishing. It installs from the lockfile and runs the test suite first.

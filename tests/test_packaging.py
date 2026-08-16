@@ -6,6 +6,7 @@ and `monocr.__version__` can report different numbers with nothing to notice —
 and a bug report then names a release that was never built from this tree.
 """
 
+import re
 import tomllib
 from importlib.metadata import version as installed_version
 from pathlib import Path
@@ -22,13 +23,36 @@ def declared_version():
         return tomllib.load(f)["project"]["version"]
 
 
-def test_the_installed_metadata_matches_the_module_attribute():
-    """What `monocr --version` prints, against what `monocr.__version__` says."""
-    assert installed_version("monocr") == monocr.__version__
+def test_pyproject_is_the_only_place_a_version_is_written():
+    """pyproject.toml, the installed metadata, and `monocr.__version__` agree.
+
+    `__version__` now reads the metadata rather than repeating the number, so
+    the first two are the only independent sources and this is the check that
+    matters: an install that has drifted from the manifest it was built from.
+    """
+    assert declared_version() == installed_version("monocr")
+    assert monocr.__version__ == declared_version()
 
 
-def test_pyproject_matches_the_module_attribute():
-    assert declared_version() == monocr.__version__
+def test_the_version_is_not_the_uninstalled_fallback():
+    """`0.0.0+unknown` means the package is being imported from a source tree
+    that was never installed, and every version the CLI reports is fiction."""
+    assert monocr.__version__ != "0.0.0+unknown"
+
+
+def test_no_release_version_is_hardcoded_in_the_package():
+    """The drift this replaced: `uv version --bump` edits pyproject.toml only,
+    so a second hand-maintained copy went stale on every release.
+
+    The uninstalled sentinel is allowed; a semver literal is not.
+    """
+    init = (Path(__file__).resolve().parent.parent / "src" / "monocr" / "__init__.py").read_text()
+    assert "importlib.metadata" in init, "__version__ must come from the installed metadata"
+    hardcoded = re.search(r'__version__\s*=\s*["\']\d+\.\d+\.\d+["\']', init)
+    assert hardcoded is None, (
+        f"__version__ is assigned the literal {hardcoded.group(0) if hardcoded else ''} again; "
+        "the release procedure silently breaks when it drifts from pyproject.toml"
+    )
 
 
 def test_the_charset_error_is_reachable_from_the_top_level():

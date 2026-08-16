@@ -13,10 +13,21 @@ from .exceptions import (
     ImageLoadError,
 )
 
-# Kept equal to [project.version] in pyproject.toml. `monocr --version` reads
-# the installed metadata, not this string, so the two can drift apart silently —
-# tests/test_packaging.py is what stops that.
-__version__ = "2.3.0"
+# Read from the installed metadata, so pyproject.toml is the only place a
+# version is written.
+#
+# This was a hand-maintained literal until 2.3.1, kept equal to
+# [project.version] by a test. That worked, but it made the documented release
+# procedure wrong: `uv version --bump` edits pyproject.toml and nothing else, so
+# following the README left this string behind, and the guard fired *after* the
+# tag had been pushed. Deriving it removes the class of mistake instead of
+# detecting it.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _installed_version
+
+    __version__ = _installed_version("monocr")
+except PackageNotFoundError:  # a source tree that was never installed
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "MonOCR",

@@ -19,8 +19,10 @@ above them.
 - Added a CI job that installs the built wheel in `python:3.12-slim` and
   imports it, which is the only place the headless-OpenCV claim below is
   actually testable.
-- Tests: 9 to 82, none of which reach the network or load a model. Verified by
+- Tests: 9 to 89, none of which reach the network or load a model. Verified by
   mutation: 18 deliberate reversions of the fixes in this release, all caught.
+  The harness is committed at `scripts/mutate.py`, so the claim can be re-run
+  rather than taken on trust.
 
 ### Fixed
 
