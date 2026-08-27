@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased
+
+Two correctness fixes to the inference path. Neither is released yet, and the
+newest released section below describes a segmenter with no suppression pass and an
+inference path with no polarity probe — which is why this section exists rather
+than waiting for a version bump.
+
+### The model was fed pages it could not read
+
+**Input polarity is now detected.** `_prepare_image` did `image.convert("L")` and
+nothing else, so a light-on-dark scan or a dark-mode screenshot reached a model
+trained only on dark text on a light background.
+
+Measured over 300 labelled crops, same graph, only the polarity of the input
+changed:
+
+| input | with a probe | without |
+|---|---:|---:|
+| upright | 0.0000 | 0.0036 |
+| inverted | 0.0000 | **0.0342** |
+
+9.5x worse on inverted input — degradation rather than the total failure it might
+sound like, and cheap to close for four corner patches. Corner-median rather than a
+global mean, because a page 64% covered in ink has a mean below 128 and a global
+test would invert an ordinary dense page.
+
+The probe runs in `_prepare_image`, i.e. **before** `_segment_lines`. That ordering
+matters: the segmenter treats dark as ink, so handed a light-on-dark page it would
+segment the background and return the gaps between lines. Three sibling bindings got
+this wrong by putting the probe in their per-crop preprocessing; this package did
+not.
+
+**Printed page rules are now suppressed** before the projection profile. A page
+border adds a constant ink floor to every row it spans, and once that floor clears
+the gap threshold no in-frame row reads as a gap: the page returns as one band and
+is squeezed into the model window.
+
+Measured through this segmenter over twelve real MNEC papers: bands returned went
+from 131 to 197, with four of the twelve collapsing to three bands or fewer without
+it. Pages carrying no rules are untouched to the pixel, which is what makes the
+pass safe to run unconditionally.
+
+Two guards, both with their measurements in the source: `RULE_SPAN = 0.5`, because
+no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long; and
+`RULE_MAX_INK_SHARE = 0.80`, because `RULE_SPAN` is a fraction of the page, so on a
+short page a tall text block exceeds it vertically and every glyph column reads as a
+rule.
+
+### Not changed
+
+Nothing in the model contract: 160x1024 input, `pixel / 127.5 - 1.0`, the 276-character
+charset and the pinned revision are all as they were.
+
 ## 2.3.0 — 2026-08-16
 
 The 2.2.0 release fixed a decode defect that this repository had no way of
