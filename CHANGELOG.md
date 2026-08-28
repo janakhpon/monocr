@@ -97,23 +97,40 @@ here against 1-4 there, window 6 fused 1-5 against 1-6. The absence of an
 even-window case is why this went unnoticed. `smooth_kernel` is a constructor
 argument, so a caller who raised it widened the failure with it.
 
-The two decisions had to be split rather than moved together, and that is a
-correctness argument, not a convention. The smoothed max is the lower of the two
-whenever the page's tallest peak is narrower than the smoothing window, so
-calibrating on it keeps faint lines visible. On a 1000-px page carrying a dense 1-px
-spike row, the raw max is 127,500 and the smoothed max 25,500; a faint 20-row band
-summing 2,295 a row sits between the resulting thresholds of 2,550 and 510.
-Calibrating on the smoothed profile finds that band. Calibrating on the raw profile
-returns **zero** lines and loses the only real line on the page — a fused-line bug
-traded for a dropped-line one.
+The calibration stays on the smoothed profile while detection moves to the raw one.
+**That split is a trade, not a correctness result**, and it was written up here as a
+correctness result on the strength of a single fixture. Both directions are measured,
+on the same family of page. Take a 1000-px page carrying a dense 1-px spike row: the
+raw max is 127,500 and the smoothed max 25,500, giving thresholds of 2,550 and 510.
+
+- Add a faint 20-row band summing 2,295 a row, which sits between them. Smoothed
+  calibration finds it; raw calibration returns **zero** lines and loses the only
+  real line on the page.
+- Instead add two 12-row bands at rows 40-51 and 70-81 with a faint 4-column bridge
+  across the gap summing 1,020 a row. Smoothed calibration returns **one** band,
+  rows 32-89, the two lines fused; raw calibration returns **two**, correctly split.
+
+A lower threshold keeps faint lines and fuses across faint bridges; a higher one
+splits correctly and drops faint lines. Which is better is a measurement question,
+and it is the same one this file already leaves open below: nothing in any of these
+repositories scores a segmenter against labelled pages. The split is kept because
+every sibling implementation does it that way, so changing it here alone would break
+parity for no measured gain — not because the trade has been settled.
+
+The **detection** half is not a trade: reading boundaries off the smoothed profile
+fuses lines a kernel apart with no compensating benefit, which is why all six
+implementations moved.
 
 On an ordinary page the two calibrations are indistinguishable, which needs saying
 because it means a test at the default ratio proves nothing about them. Smoothing
-does not lower the peak of a band taller than the window, so `max(smoothed) ==
-max(raw)` in exact float equality on every drawn page tried — 29 bands, gaps 1-20,
-band heights 5 and up, 64,260.0 either way. Band heights 1-4 at kernel 5 gave
-12,852, 25,704, 38,556 and 51,408, i.e. exactly `peak / kernel` until the band
-outgrows the window. That is why the calibration test needs a sub-kernel-height
+does not lower the peak of a band at least as tall as the window — height 5 at
+kernel 5 already preserves it — so `max(smoothed) == max(raw)` in exact float
+equality on every drawn page tried: 29 bands, gaps 1-20, band heights 5 and up,
+64,260.0 either way. Band heights 1-4 at kernel 5 gave smoothed maxima of 12,852,
+25,704, 38,556 and 51,408, which is `min(band_h, kernel) * peak / kernel`, so the
+separations run the other way — 51,408 down to 12,852. Not "exactly `peak / kernel`":
+that figure is 12,852, the separation at height 4 and the smoothed max at height 1
+and neither elsewhere. That is why the calibration test needs a sub-kernel-height
 spike row.
 
 The `hist[:h_img]` bound on the scan is gone rather than left looking load-bearing.

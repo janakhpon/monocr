@@ -267,26 +267,50 @@ class LineSegmenter:
         #
         # Whether the two calibrations are even distinguishable was measured
         # here on 2026-08-28, twice and independently, and on an ordinary page
-        # they are NOT. Smoothing does not lower the peak of a band taller than
-        # the window, so `max(smoothed) == max(raw)` in exact float equality on
-        # every drawn page tried: 29 glyph-blob bands at gaps 1-20 and band
-        # heights 5 and up, all 64,260 either way. Only a peak NARROWER than the
-        # window separates them, and then by exactly `peak / kernel`: band
-        # heights 1, 2, 3 and 4 at kernel 5 gave 12,852, 25,704, 38,556 and
-        # 51,408 against a raw 64,260.
+        # they are NOT. Smoothing does not lower the peak of a band AT LEAST AS
+        # TALL AS the window -- height 5 at kernel 5 already preserves it -- so
+        # `max(smoothed) == max(raw)` in exact float equality on every drawn page
+        # tried: 29 glyph-blob bands at gaps 1-20 and band heights 5 and up, all
+        # 64,260 either way.
         #
-        # Why the two decisions must be SPLIT rather than moved together, which
-        # is the real argument for the dual histogram and is not about gap
-        # resolution at all. The smoothed max is the LOWER of the two whenever
-        # the page's tallest peak is a spike, so calibrating on it keeps faint
-        # lines visible. Measured on the 1000-px page below: a dense 1-px spike
-        # row gives a raw max of 127,500 and a smoothed max of 25,500, and a
-        # faint 20-row band summing 2,295 a row sits between the two thresholds
-        # -- 510 from the smoothed max, 2,550 from the raw one. Calibrating on
-        # the smoothed profile finds that band; calibrating on the raw profile
-        # returns ZERO lines and loses the only real line on the page. So moving
-        # the calibration along with the detection would trade a fused-line bug
-        # for a dropped-line bug.
+        # Only a peak NARROWER than the window separates them, and the law is
+        # `smoothed_max = min(band_h, kernel) * peak / kernel`. Band heights 1 to
+        # 4 at kernel 5 gave smoothed maxima of 12,852, 25,704, 38,556 and 51,408
+        # against a raw 64,260 -- so the SEPARATIONS run the other way, 51,408
+        # down to 12,852. It is not "`peak / kernel` per step": that figure is
+        # 12,852, which is the separation only at band height 4 and the smoothed
+        # max only at height 1. Stated wrongly here until 2026-08-28, where it
+        # invited a reader to re-derive 25,704 as 12,852 and conclude the
+        # measurement was broken.
+        #
+        # Why the two decisions are SPLIT rather than moved together. This is a
+        # TRADE, not a correctness result, and it was written here as a
+        # correctness result until 2026-08-28 on the strength of one fixture.
+        # Both directions are measured, on the same family of page:
+        #
+        #   A faint line and NO bridge. 1000-px page, dense 1-px spike row (raw
+        #   max 127,500, smoothed max 25,500 -> thresholds 2,550 and 510), plus a
+        #   faint 20-row band summing 2,295 a row, which sits between them.
+        #   Smoothed calibration finds the band; raw calibration returns ZERO
+        #   lines and loses the only real line on the page.
+        #
+        #   The same page WITH a faint bridge. Two 12-row bands at rows 40-51 and
+        #   70-81 and a faint 4-column bridge across the gap summing 1,020 a row.
+        #   Smoothed calibration returns ONE band, rows 32-89 -- the two lines
+        #   fused. Raw calibration returns TWO, correctly split.
+        #
+        # So the lower threshold keeps faint lines and fuses across faint
+        # bridges, and the higher one splits correctly and drops faint lines.
+        # Which is better is a measurement question, and it is the same one this
+        # class's docstring and the CHANGELOG both leave open: nothing in any of
+        # these repositories scores a segmenter against labelled pages. The split
+        # is kept because it is what every sibling implementation does, so
+        # changing it here alone would break parity for no measured gain -- not
+        # because the trade has been settled.
+        #
+        # The DETECTION half is not a trade and is not in question: reading
+        # boundaries off the smoothed profile fuses lines a kernel apart with no
+        # compensating benefit, which is why all six implementations moved.
         #
         # That is also why nothing at the default ratio on an ORDINARY page can
         # tell the two calibrations apart, and why
