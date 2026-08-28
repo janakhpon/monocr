@@ -64,7 +64,8 @@ padding from. `monocr-onnx` bounds the same loop with `range(h_img)`; this packa
 scanned the profile instead.
 
 Reachable without a synthetic fixture, because `smooth_kernel` is a constructor
-argument — at the mon_OCR reference's 15 it caught any crop under 15 rows tall.
+argument — at the mon_OCR reference's 15 any crop under 15 rows tall is in
+range, and drawn fixtures at that window differ from 3 rows to 10.
 Default construction on a page of 5 rows or taller was never affected.
 
 ### Lineage, stated where it is read
@@ -89,8 +90,9 @@ only one direction fails loudly — `crop, bbox = line` against a dict unpacks i
 two keys and feeds the model the string `'img'`. Then `smooth_kernel` against
 `smooth_window`, PIL-only input, and no `tile_line`/`cut_column`.
 
-Two more divergences from the mon_OCR reference are now recorded, both the same
-class as the max-versus-mean one and both previously unlisted. `pad_x` here is a
+Four more divergences from the mon_OCR reference are now recorded, all
+previously unlisted, and the first is the same class as the max-versus-mean
+one. `pad_x` here is a
 fraction of the line HEIGHT; the reference takes a fraction of the line WIDTH
 floored at an absolute 10px, so a short tall word and a long thin line are padded
 the opposite way round. Beside it: 0.40 against 0.20 vertically, rounding up
@@ -110,8 +112,9 @@ The reason the unsliced `np.max(hist)` beside the sliced scan is correct is now
 recorded at the line, because slicing both — the obvious tidy-up — would break
 calibration parity with `monocr-onnx`, which also takes its max unsliced.
 
-No constant was changed. Which set is right is a measurement question and neither
-repository has anything that scores a segmenter.
+No constant was changed. Which set is right is still a measurement question:
+individual changes on both sides carry their own measurements, but nothing in
+either repository scores a segmenter against labelled pages.
 
 ### Not changed
 

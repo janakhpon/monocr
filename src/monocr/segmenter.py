@@ -87,7 +87,11 @@ class LineSegmenter:
     the core line height -- and the printed-rule block above is the same code
     with the same RULE_SPAN and RULE_MAX_INK_SHARE.
 
-    Four divergences from the port that are not constants, worst first.
+    Divergences from the port that are not constants, as read on 2026-08-28 in
+    a tree another agent was editing. The one that changes what the two return
+    for the same page -- which profile the boundaries come off -- is newest and
+    has its own paragraph below. These four change how a caller talks to them,
+    worst first. Treat the list as what was observed, not as closed.
 
     ``segment`` here returns a list of ``(crop, bbox)`` tuples; the port returns
     a list of ``{'img': ..., 'bbox': ...}`` dicts. The bbox is the same
@@ -119,11 +123,16 @@ class LineSegmenter:
     ``int(h_raw * 0.15)``, a fraction of the line's HEIGHT. Read in
     ``mon_OCR/src/monocr/segmenter.py`` on 2026-08-28, in a tree another agent
     was editing at the time, so re-read it rather than trusting this line:
-    ``pad_x = max(pad_x_floor_px, int(np.ceil(coreW * pad_x_factor)))`` -- a
-    fraction of the line's WIDTH, 0.05 of it, floored at an absolute 10 px. A
+    ``pad_x = max(self.pad_x_floor_px, int(np.ceil(coreW * self.pad_x_factor)))``
+    -- a fraction of the line's WIDTH, 0.05 of it, floored at an absolute 10 px.
+    Both are constructor arguments there, so those are defaults a caller can
+    override, not module constants. A
     short tall word and a long thin line get opposite treatment, so no constant
-    reconciles those two either -- the reference's own header records the
-    divergence in the same terms. Beside it, three more in the same method: the
+    reconciles those two either. The reference's header makes the same argument
+    in the same terms, but scopes it to a six-implementation roster it says
+    explicitly does not yet include this package, so read it as corroborating
+    the shape of the claim and not the comparison. Beside it, three more in the
+    same method: the
     vertical factor is 0.40 there against 0.20 here, both pads round up there
     and truncate here, and the column extents come off a dilated mask there
     against the plain binary one here, which widens the crop before any pad.
@@ -207,8 +216,9 @@ class LineSegmenter:
         # test changed.
         # The max is taken on the UNSLICED profile while the scan below reads
         # `hist[:h_img]`. The asymmetry is deliberate; do not tidy it up by
-        # slicing both. `monocr_onnx` also takes its max on the whole smoothed
-        # profile, so slicing here would make the two bindings calibrate the
+        # slicing both. `monocr_onnx` also took its max on the whole smoothed
+        # profile when read on 2026-08-28, so slicing here would make the two
+        # bindings calibrate the
         # same page differently -- a formula divergence with every constant
         # still equal, which is the class of change the class docstring warns
         # about.
@@ -216,26 +226,33 @@ class LineSegmenter:
         # It is also safe, not merely conventional. Row sums are non-negative
         # and the kernel is uniform, so when the window is wider than the page
         # every full-convolution index in `[h_img - 1, kernel - 1]` covers the
-        # whole profile and holds the same, maximal value. `mode="same"` returns
-        # the window starting at full index `(h_img - 1) // 2`, so full index
+        # whole profile and holds the same, maximal value. In that same regime
+        # -- and only there; the offset is `(min(h_img, kernel) - 1) // 2` in
+        # general -- `mode="same"` returns the window starting at full index
+        # `(h_img - 1) // 2`, so full index
         # `h_img - 1` lands at returned index `h_img - 1 - (h_img - 1) // 2`,
         # which is always within the first `h_img` elements. Measured 2026-08-28
         # over 138,658 exhaustive binary profiles (h 1-12, kernel 1-17) and
         # 297,712 random float32 ones: the sliced and unsliced maxima never
-        # differed in value, only ever by one ULP of float32 summation order
-        # (worst relative gap 3.8e-16).
+        # differed in value, only ever by one ULP of summation order in the
+        # float64 the convolution upcasts to (worst relative gap 3.8e-16).
         max_val = np.max(hist)
         threshold = max_val * self.threshold_ratio
 
         # Bound the scan to real rows. `np.convolve(..., mode="same")` returns
         # max(len(hist), smooth_kernel) elements, so on a page shorter than the
         # smoothing window `hist` describes rows that do not exist. The
-        # monocr_onnx port bounds the same loop with `range(h_img)`; without it a
+        # monocr_onnx port bounds the same loop with `range(h_img)` -- though as
+        # read on 2026-08-28 it now indexes the RAW profile there, which is
+        # always exactly h_img long, so its bound is no longer evidence about a
+        # smoothed one. Without the bound here a
         # 3-row page produced a run of length 4, which both passed a min_line_h
         # of 4 that no 3-row page can satisfy and inflated the h_raw that
         # `_extract_line` derives its padding from. Reachable in normal use,
         # because `smooth_kernel` is a constructor argument: at the reference's
-        # 15 it catches any crop under 15 rows tall.
+        # 15 any crop under 15 rows tall is in range. Which of those actually
+        # differ depends on where the ink sits: measured 2026-08-28 on drawn
+        # fixtures at kernel 15, pages of 3 to 10 rows.
         is_text_row = hist[:h_img] > threshold
 
         lines: List[Tuple[Image.Image, Tuple[int, int, int, int]]] = []

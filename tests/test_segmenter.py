@@ -103,7 +103,7 @@ def test_a_page_cannot_hold_a_line_taller_than_itself():
     port bounds the same loop with `range(h_img)`; this one did not.
 
     Not a synthetic-only case. `smooth_kernel` is a constructor argument, so at
-    the mon_OCR reference's 15 the bug reaches any crop under 15 rows tall.
+    the mon_OCR reference's 15 any crop under 15 rows tall is in range.
     """
     strip = np.full((3, 40), 255, dtype=np.uint8)
     strip[0, :] = 0
@@ -135,7 +135,8 @@ def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
     * The phantom run has to *terminate* inside the smoothed profile. The
       trailing branch of the scan was always bounded by `h_img`, so a run that
       reaches the end of the profile was never over-long to begin with.
-      `np.convolve(..., mode="same")` starts its returned window at full index
+      For a window wider than the page — the only case with phantom rows in it
+      — `np.convolve(..., mode="same")` starts its returned window at full index
       `(h - 1) // 2`, so the run from this fixture's single inked row ends at
       index `kernel - (h - 1) // 2` — inside the profile only from h=3 up.
     * That run then has to beat the minimum, i.e. exceed `h`.
@@ -186,8 +187,14 @@ def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
     Measured 2026-08-28 on this fixture: 3 rows, ink in row 0 across columns
     8-20, `smooth_kernel=15`. The run terminated at profile index 14, so `pad_x`
     was `int(14 * 0.15) == 2` rather than `int(3 * 0.15) == 0`, and the crop came
-    back as (6, 0, 16, 3) around a line that is (8, 0, 12, 3) — four columns of
+    back as (6, 0, 16, 3) where a zero pad gives (8, 0, 12, 3) — four columns of
     padding the ink never asked for.
+
+    (8, 0, 12, 3) is the measured value, not an endorsement of the width. The
+    ink spans 13 columns, 8 to 20 inclusive, and `_extract_line` mixes an
+    inclusive `x_end` with PIL's exclusive crop, so the last ink column is
+    dropped at zero pad. `monocr_onnx._extract_line` does the same thing, so
+    that off-by-one is a separate, shared question and not this bug.
     """
     strip = np.full((3, 40), 255, dtype=np.uint8)
     strip[0, 8:21] = 0
