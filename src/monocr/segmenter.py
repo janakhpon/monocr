@@ -42,11 +42,19 @@ def suppress_page_rules(binary):
     Returns `binary` unchanged when the page carries no rules, and also when
     suppression would remove more ink than RULE_MAX_INK_SHARE.
 
-    Both kernels are floored at 15 px, so below 30 px of page in a direction the
-    test is an absolute 15-px run rather than RULE_SPAN of the page. Without the
-    floor a 20-px-wide page would call a 10-px stroke a rule; with it, a page
-    that small finds no rules at all, because opening by a kernel wider than the
-    page clears the mask.
+    Two behaviours the constants above do not state, both measured 2026-08-28.
+    The kernels are floored at 15 px, so below 30 px of page in a direction the
+    span test is an absolute 15-px run rather than RULE_SPAN of the page. And
+    OpenCV erodes with out-of-image pixels treated as ink, so a run touching a
+    page edge is credited with the overhang and roughly half of RULE_SPAN is
+    enough there: a 10-px run on a 20-px-wide page is a rule at the edge and is
+    not one in the middle.
+
+    That second one is not a leak, it is why a printed border is found at all --
+    a border touches all four edges. It does mean the "half a page long"
+    argument above is the interior case; at an edge the bar is half that. An
+    all-ink page comes back unchanged through RULE_MAX_INK_SHARE, not because
+    the kernel outgrew the page: opening does not clear a mask it overhangs.
     """
     h, w = binary.shape
     horizontal = cv2.morphologyEx(

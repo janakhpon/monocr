@@ -48,7 +48,9 @@ no rules are untouched to the pixel, which is what makes the pass safe to run
 unconditionally.
 
 Two guards, both with their measurements in the source: `RULE_SPAN = 0.5`, because
-no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long; and
+no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long -- the
+interior case, since OpenCV counts the out-of-image overhang as ink and the bar is
+roughly half that at a page edge, which is what makes a border findable; and
 `RULE_MAX_INK_SHARE = 0.80`, because `RULE_SPAN` is a fraction of the page, so on a
 short page a tall text block exceeds it vertically and every glyph column reads as a
 rule.

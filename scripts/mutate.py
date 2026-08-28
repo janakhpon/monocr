@@ -96,6 +96,19 @@ MUTATIONS = [
         "if (y - start_y) >= 1:",
     ),
     (
+        "rule detection pins the erosion border, losing the edge overhang",
+        "src/monocr/segmenter.py",
+        "        cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(w * RULE_SPAN)), 1)),\n    )",
+        "        cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(w * RULE_SPAN)), 1)),\n"
+        "        borderValue=0,\n    )",
+    ),
+    (
+        "the 15-px kernel floor drops to 1, so short strokes become rules",
+        "src/monocr/segmenter.py",
+        "(max(15, int(w * RULE_SPAN)), 1)",
+        "(max(1, int(w * RULE_SPAN)), 1)",
+    ),
+    (
         "the row scan is unbounded again, so it runs past a short page",
         "src/monocr/segmenter.py",
         "        is_text_row = hist[:h_img] > threshold",
