@@ -37,10 +37,15 @@ border adds a constant ink floor to every row it spans, and once that floor clea
 the gap threshold no in-frame row reads as a gap: the page returns as one band and
 is squeezed into the model window.
 
-Measured through this segmenter over twelve real MNEC papers: bands returned went
-from 131 to 197, with four of the twelve collapsing to three bands or fewer without
-it. Pages carrying no rules are untouched to the pixel, which is what makes the
-pass safe to run unconditionally.
+Measured through this segmenter over the twelve renderable MNEC page-ones: bands
+returned went from 124 to 169, with four of the twelve collapsing to three bands or
+fewer without it. The per-page table is in
+`tests/test_page_rules.py::test_segment_wires_in_the_suppression`, which is the
+record of this measurement — this line said 131 to 197 until 2026-08-28, a roll-up
+figure taken from a sibling repository's header that nothing itemises and that
+disagrees with the numbers this package landed beside its own code. Pages carrying
+no rules are untouched to the pixel, which is what makes the pass safe to run
+unconditionally.
 
 Two guards, both with their measurements in the source: `RULE_SPAN = 0.5`, because
 no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long; and
