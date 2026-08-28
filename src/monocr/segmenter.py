@@ -74,6 +74,39 @@ def suppress_page_rules(binary):
     return cv2.subtract(binary, rules)
 
 
+def smooth_profile(raw_hist, window):
+    """Box-filter the row profile. Returns `raw_hist` ITSELF for window <= 1.
+
+    Not a copy. The caller keeps both profiles alive and neither is written to,
+    so the aliasing is harmless -- but do not start mutating either in place.
+    `monocr_onnx`'s Python and JS bindings alias the same way; its Go binding
+    returns a fresh slice on purpose. Do not read the Go note as a bug report
+    about this one.
+
+    A TRUE `window`-tap box. numpy's kernel has exactly `window` taps whatever
+    the parity and `mode='same'` divides by `window`, so a run of `window` zero
+    rows always drives at least one output row to zero and a run of
+    `window - 1` never does. Measured 2026-08-28 over windows 1-16: the zero-run
+    break point is exactly `window` at every one of them, and the peak of an
+    isolated spike is exactly `spike / window`.
+
+    That is the same law as `monocr_onnx.segmenter.smooth_profile`, read on
+    2026-08-28, and NOT the law of that repository's JS, Go and Rust bindings:
+    those loop `[-window//2, +window//2]`, which is `2 * (window // 2) + 1`
+    taps, so an even window there spans one row MORE than asked and behaves as
+    the odd window above it. Their break points run 1,3,3,5,5,7,... Do not carry
+    a table across in either direction.
+
+    `mode='same'` returns `max(len(raw_hist), window)` elements, so for a window
+    wider than the page this profile is LONGER than the page. That is one reason
+    only the threshold is read off it; see `segment`.
+    """
+    if window <= 1:
+        return raw_hist
+    kernel = np.ones(window) / window
+    return np.convolve(raw_hist, kernel, mode="same")
+
+
 class LineSegmenter:
     """
     Robust line segmenter using Horizontal Projection Profiles with Smoothing.
@@ -113,10 +146,11 @@ class LineSegmenter:
     reference takes a fraction of the MEAN of its non-zero rows. Max and mean
     part company as lines are added to a page, so no choice of ratio reconciles
     them: 0.02 of the max and 0.12 of the mean are different algorithms at any
-    number. The reference also detects run boundaries on the raw profile while
-    calibrating the threshold on the smoothed one, and runs four stages absent
-    here entirely -- a pre-blur, a morphological smear, a bounded gap merge, and
-    outlier rejection. Expect different line counts on the same page.
+    number. The reference detects run boundaries on the raw profile while
+    calibrating the threshold on the smoothed one, which as of 2026-08-28 this
+    module does too, and runs four stages absent here entirely -- a pre-blur, a
+    morphological smear, a bounded gap merge, and outlier rejection. Expect
+    different line counts on the same page.
 
     The crop geometry parts company the same way, and this list omitted it until
     2026-08-28. ``_extract_line`` here pads horizontally by
@@ -152,21 +186,29 @@ class LineSegmenter:
     number here without changing it there is what makes two bindings disagree on
     one input, and so is changing a basis, a statistic or a profile.
 
-    That is live rather than hypothetical. Observed 2026-08-28 in
+    Item 1 was a live divergence and is now closed. Observed 2026-08-28 in
     ``monocr-onnx`` at commit a3e3dba, "fix(python): detect line boundaries on
     the raw profile, not the smoothed" -- local and unpushed at the time, so
-    confirm before relying on it: the port's Python binding now detects
-    boundaries on the RAW profile while still calibrating on the smoothed one,
-    and this module still detects on the smoothed profile. Every constant listed
-    above is still equal, and the two now cut a tightly-spaced page differently.
-    Bringing that across here is sequenced separately and on purpose. Do not do
-    it as a drive-by, and do not read the equal constants as proof the two agree.
+    confirm before relying on it -- the port's Python binding moved its boundary
+    detection to the RAW profile while still calibrating on the smoothed one.
+    Read on 2026-08-28, this module was the last of six implementations still
+    detecting on the smoothed profile: the port's Python, JS, Go and Rust
+    bindings and the mon_OCR reference all read boundaries off the raw one. As of
+    2026-08-28 ``segment`` does the same: raw for boundaries, smoothed for the
+    threshold. The measurement behind it is in
+    ``segment`` step 5 and is this module's own, taken at this module's
+    parameters -- do not substitute the port's table, because the two round
+    their smoothing window differently from the sibling bindings.
 
-    Which set is right is unmeasured where it counts. The port's raw-profile
-    change carries its own measurement, on drawn bands at fixed gap widths, and
-    the reference's gap ratio carries one too; what neither repository has is
+    Items 2-4 are still open, and 2 is the one to leave alone: the max-versus-
+    mean split is a tuning constant the reference's spec header forbids
+    reconciling.
+
+    Which segmenter is right is still unmeasured where it counts. The raw-
+    profile change carries a measurement on drawn bands at fixed gap widths, and
+    the reference's gap ratio carries one too; what no repository here has is
     anything that scores a segmenter against labelled pages. So do not close the
-    question by editing a number -- or a formula -- here.
+    remaining questions by editing a number -- or a formula -- here.
 
     Polarity is a precondition, not a stage. This class treats dark pixels as
     ink and never probes; ``MonOCR._prepare_image`` runs ``normalize_polarity``
@@ -200,60 +242,116 @@ class LineSegmenter:
         # 2.5 Printed-rule suppression
         binary = suppress_page_rules(binary)
 
-        # 3. Horizontal Projection Profile
-        hist = np.sum(binary, axis=1).astype(np.float32)  # Shape (H,)
+        # 3. Horizontal projection profiles, raw and smoothed
+        #
+        # Both stay alive. The threshold is calibrated on the smoothed profile
+        # (step 4) and the run boundaries are read off the raw one (step 5).
+        # Until 2026-08-28 the convolution overwrote `hist` in place, so there
+        # was no raw profile left to detect on.
+        raw_hist = np.sum(binary, axis=1).astype(np.float32)  # Shape (H,)
+        smoothed_hist = smooth_profile(raw_hist, self.smooth_kernel)
 
-        # 4. Smooth Histogram
-        if self.smooth_kernel > 1:
-            kernel = np.ones(self.smooth_kernel) / self.smooth_kernel
-            hist = np.convolve(hist, kernel, mode='same')
-
-        # 5. Find Text Regions vs Spaces
+        # 4. Calibrate the gap threshold on the SMOOTHED profile's max
         #
         # A blank page needs no special case: its maximum is 0, so the threshold
         # is 0 and the strict `>` excludes every row. An explicit early return
         # here was dead code — mutation testing on 2026-08-16 removed it and no
         # test changed.
-        # The max is taken on the UNSLICED profile while the scan below reads
-        # `hist[:h_img]`. The asymmetry is deliberate; do not tidy it up by
-        # slicing both. `monocr_onnx` also took its max on the whole smoothed
-        # profile when read on 2026-08-28, so slicing here would make the two
-        # bindings calibrate the
-        # same page differently -- a formula divergence with every constant
-        # still equal, which is the class of change the class docstring warns
+        #
+        # Keep the statistic and the profile. This module takes a fraction of
+        # the profile MAX, not of the mean of its non-zero rows, and it takes it
+        # on the SMOOTHED profile. `monocr_onnx` does both the same way, read on
+        # 2026-08-28, so moving either would be a formula divergence with every
+        # constant still equal -- the class of change the class docstring warns
         # about.
         #
-        # It is also safe, not merely conventional. Row sums are non-negative
-        # and the kernel is uniform, so when the window is wider than the page
-        # every full-convolution index in `[h_img - 1, kernel - 1]` covers the
-        # whole profile and holds the same, maximal value. In that same regime
-        # -- and only there; the offset is `(min(h_img, kernel) - 1) // 2` in
-        # general -- `mode="same"` returns the window starting at full index
-        # `(h_img - 1) // 2`, so full index
-        # `h_img - 1` lands at returned index `h_img - 1 - (h_img - 1) // 2`,
-        # which is always within the first `h_img` elements. Measured 2026-08-28
-        # over 138,658 exhaustive binary profiles (h 1-12, kernel 1-17) and
-        # 297,712 random float32 ones: the sliced and unsliced maxima never
-        # differed in value, only ever by one ULP of summation order in the
-        # float64 the convolution upcasts to (worst relative gap 3.8e-16).
-        max_val = np.max(hist)
+        # Whether the two calibrations are even distinguishable was measured
+        # here on 2026-08-28, twice and independently, and on an ordinary page
+        # they are NOT. Smoothing does not lower the peak of a band taller than
+        # the window, so `max(smoothed) == max(raw)` in exact float equality on
+        # every drawn page tried: 29 glyph-blob bands at gaps 1-20 and band
+        # heights 5 and up, all 64,260 either way. Only a peak NARROWER than the
+        # window separates them, and then by exactly `peak / kernel`: band
+        # heights 1, 2, 3 and 4 at kernel 5 gave 12,852, 25,704, 38,556 and
+        # 51,408 against a raw 64,260.
+        #
+        # Why the two decisions must be SPLIT rather than moved together, which
+        # is the real argument for the dual histogram and is not about gap
+        # resolution at all. The smoothed max is the LOWER of the two whenever
+        # the page's tallest peak is a spike, so calibrating on it keeps faint
+        # lines visible. Measured on the 1000-px page below: a dense 1-px spike
+        # row gives a raw max of 127,500 and a smoothed max of 25,500, and a
+        # faint 20-row band summing 2,295 a row sits between the two thresholds
+        # -- 510 from the smoothed max, 2,550 from the raw one. Calibrating on
+        # the smoothed profile finds that band; calibrating on the raw profile
+        # returns ZERO lines and loses the only real line on the page. So moving
+        # the calibration along with the detection would trade a fused-line bug
+        # for a dropped-line bug.
+        #
+        # That is also why nothing at the default ratio on an ORDINARY page can
+        # tell the two calibrations apart, and why
+        # `test_the_gap_threshold_is_calibrated_on_the_smoothed_profile` needs a
+        # sub-kernel-height spike row rather than a normal fixture.
+        #
+        # The max is deliberately UNSLICED, which is also safe rather than
+        # merely conventional. Row sums are non-negative and the kernel is
+        # uniform, so when the window is wider than the page every
+        # full-convolution index in `[h_img - 1, kernel - 1]` covers the whole
+        # profile and holds the same, maximal value; in that regime `mode="same"`
+        # returns the window starting at full index `(h_img - 1) // 2`, so full
+        # index `h_img - 1` lands inside the first `h_img` elements. Measured
+        # 2026-08-28 over 138,658 exhaustive binary profiles (h 1-12, kernel
+        # 1-17) and 297,712 random float32 ones: the sliced and unsliced maxima
+        # never differed in value, only ever by one ULP of summation order in
+        # the float64 the convolution upcasts to (worst relative gap 3.8e-16).
+        max_val = np.max(smoothed_hist)
         threshold = max_val * self.threshold_ratio
 
-        # Bound the scan to real rows. `np.convolve(..., mode="same")` returns
-        # max(len(hist), smooth_kernel) elements, so on a page shorter than the
-        # smoothing window `hist` describes rows that do not exist. The
-        # monocr_onnx port bounds the same loop with `range(h_img)` -- though as
-        # read on 2026-08-28 it now indexes the RAW profile there, which is
-        # always exactly h_img long, so its bound is no longer evidence about a
-        # smoothed one. Without the bound here a
-        # 3-row page produced a run of length 4, which both passed a min_line_h
-        # of 4 that no 3-row page can satisfy and inflated the h_raw that
-        # `_extract_line` derives its padding from. Reachable in normal use,
-        # because `smooth_kernel` is a constructor argument: at the reference's
-        # 15 any crop under 15 rows tall is in range. Which of those actually
-        # differ depends on where the ink sits: measured 2026-08-28 on drawn
-        # fixtures at kernel 15, pages of 3 to 10 rows.
-        is_text_row = hist[:h_img] > threshold
+        # 5. Find text rows on the RAW profile, not the smoothed one
+        #
+        # The smoother averages over `smooth_kernel` rows, so a gap narrower
+        # than the whole window never reaches zero in the smoothed profile: the
+        # ink either side bleeds into it, the bled rows clear the threshold, and
+        # two distinct lines come back as one band. The raw profile needs one
+        # clean row.
+        #
+        # MEASURED HERE on 2026-08-28, at this module's own parameters
+        # (min_line_h 10, smooth_kernel 5, threshold_ratio 0.02), on 29 drawn
+        # glyph-blob bands of 12 rows each, and reproduced by a second
+        # from-scratch implementation of the pipeline the same day. Detecting on
+        # the smoothed profile returned 1 band against 29 drawn at gaps of 1, 2,
+        # 3 and 4 px, and matched the raw profile from 5 px up. Detecting on the
+        # raw profile returned all 29 at every gap from 1 px.
+        #
+        # The break point is the smoother's FULL width -- exactly
+        # `smooth_kernel`, at every kernel from 1 to 16, EVEN ONES INCLUDED.
+        # `smooth_profile` is a true k-tap box at both parities, so a zero-run of
+        # length g drives an output row to zero iff `g >= k`; at `g == k - 1` the
+        # smoothed minimum is `band_sum / k`, far above a 2% threshold, which is
+        # why the count jumps 1 -> 29 with no intermediate value.
+        #
+        # This is the LAW OF THIS MODULE and it is not the siblings'. The JS, Go
+        # and Rust bindings hand-roll `[i - k//2, i + k//2]`, which is
+        # `2 * (k // 2) + 1` taps, so their break points run 1,3,3,5,5,7,... The
+        # two laws agree on odd kernels and part company on every even one,
+        # where this module breaks a row EARLIER: kernel 4 fused gaps 1-3 and
+        # kernel 6 fused 1-5 here, against 1-4 and 1-6 there. The absence of an
+        # even-window case is why this went unnoticed. Do not carry a table
+        # across in either direction. `smooth_kernel` is a constructor argument,
+        # so a caller who raises it widens the failure with it.
+        #
+        # The `[:h_img]` bound this line used to carry is gone rather than left
+        # looking load-bearing. `raw_hist` is `np.sum(binary, axis=1)` and so
+        # has exactly `h_img` elements; it was the SMOOTHED profile that could
+        # be longer, because `np.convolve(..., mode="same")` returns
+        # max(len(hist), smooth_kernel) elements. Unbounded on the smoothed
+        # profile a 3-row page produced a run of length 4, which passed a
+        # min_line_h of 4 that no 3-row page can satisfy and inflated the h_raw
+        # `_extract_line` derives its padding from. Detecting on the raw profile
+        # makes that structurally impossible instead of guarded, so the two
+        # short-page tests now defend against a regression to the smoothed
+        # profile rather than against a missing slice.
+        is_text_row = raw_hist > threshold
 
         lines: List[Tuple[Image.Image, Tuple[int, int, int, int]]] = []
         start_y = None
@@ -282,6 +380,42 @@ class LineSegmenter:
         until 2.3.0, with this method sitting unused beside it — hands the model
         a strip whose aspect ratio is the page's, not the line's, and the resize
         then squeezes the text horizontally to fit the window.
+
+        KNOWN OFF-BY-ONE ON THE RIGHT EDGE. Recorded 2026-08-28, deliberately
+        not fixed.
+
+        ``x_end`` is the INCLUSIVE index of the last ink column, and PIL's
+        ``crop`` is EXCLUSIVE on ``x2``. So the crop spans
+        ``x_start - pad_x`` .. ``x_end + pad_x - 1``. Three consequences:
+
+        * The pads are asymmetric: ``pad_x`` columns of margin on the left and
+          ``pad_x - 1`` on the right. Universal, on every crop that is not
+          clipped by a page edge.
+        * The reported width understates the ink by one for the same reason.
+          ``x2 - x1`` is ``x_end - x_start + 2 * pad_x``, where the ink actually
+          spans ``x_end - x_start + 1`` columns.
+        * Ink is only LOST at ``pad_x == 0``, where the last ink column falls
+          outside the crop outright. That needs a caller passing ``min_line_h``
+          below 7: ``pad_x = int(h_raw * 0.15)`` and ``h_raw >= min_line_h``, so
+          ``min_line_h >= 7`` forces ``pad_x >= 1`` and the last ink column is
+          always inside. At the default 10 no ink can be lost, so the data-loss
+          path is not reachable through the defaults.
+
+        It is not fixed here because it is not this module's alone. The same
+        arithmetic is in ``monocr_onnx.segmenter.LineSegmenter._extract_line``
+        (read 2026-08-28 in a tree another agent was editing: ``x_start,
+        x_end`` at line 208, ``x2`` at 217, ``crop`` at 226) and in the
+        reference ``mon_OCR/src/monocr/segmenter.py`` at HEAD 8f645ffa on
+        2026-08-28 (``x0, x1`` at 841, ``coreW = x1 - x0`` at 843, ``xb`` at
+        853, ``crop`` at 856), whose ``coreW`` carries the same one-column
+        understatement. In the reference no ink can be lost at any setting: its
+        ``pad_x`` is floored at an absolute 10 px, ``_PAD_X_FLOOR_PX``.
+
+        Shifting every crop by a pixel across three implementations -- two of
+        them published packages, and one the corpus every page-level CER in this
+        ecosystem was measured against -- is an owner decision, not a cleanup.
+        Do not do it in one place alone: that breaks parity rather than
+        restoring it.
         """
         # Find horizontal boundaries (cropping left/right whitespace)
         line_slice = binary[r_start:r_end, :]

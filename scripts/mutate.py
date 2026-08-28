@@ -109,21 +109,50 @@ MUTATIONS = [
         "(max(1, int(w * RULE_SPAN)), 1)",
     ),
     (
-        "the row scan is unbounded again, so it runs past a short page",
+        "boundaries come off the smoothed profile again, bounded",
         "src/monocr/segmenter.py",
-        "        is_text_row = hist[:h_img] > threshold",
-        "        is_text_row = hist > threshold",
+        "        is_text_row = raw_hist > threshold",
+        "        is_text_row = smoothed_hist[:h_img] > threshold",
     ),
-    # `hist[: h_img + 1]` was tried here as a second, off-by-one mutation and is
-    # not listed because it is an equivalent mutant, not a survivor: index h_img
-    # can only ever terminate a run, and terminating there gives r_end == h_img,
-    # which is what the trailing branch already does. A run starting at h_img has
-    # length 0 and `_extract_line` drops it for having no ink columns. Checked
-    # exhaustively on 2026-08-28 over 14,280 cases (h 1-8, kernel 3/5/9/15,
-    # min_line_h 0-9): zero differing outcomes. Re-checked the same day over
-    # 5,760 cases comparing returned BBOXES, not just line counts, once
-    # `test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window`
-    # made crop geometry observable: still zero. Do not re-add it.
+    (
+        "boundaries come off the smoothed profile, unbounded (pre-2026-08-28)",
+        "src/monocr/segmenter.py",
+        "        is_text_row = raw_hist > threshold",
+        "        is_text_row = smoothed_hist > threshold",
+    ),
+    (
+        "the gap threshold is calibrated on the raw profile, not the smoothed",
+        "src/monocr/segmenter.py",
+        "        max_val = np.max(smoothed_hist)",
+        "        max_val = np.max(raw_hist)",
+    ),
+    (
+        "the row smoother loses its divisor, so the profile is a sum not a mean",
+        "src/monocr/segmenter.py",
+        "    kernel = np.ones(window) / window",
+        "    kernel = np.ones(window)",
+    ),
+    (
+        "an even smoothing window widens to the odd one above it (the JS/Go/Rust law)",
+        "src/monocr/segmenter.py",
+        "    kernel = np.ones(window) / window\n"
+        '    return np.convolve(raw_hist, kernel, mode="same")',
+        "    span = 2 * (window // 2) + 1\n"
+        "    kernel = np.ones(span) / span\n"
+        '    return np.convolve(raw_hist, kernel, mode="same")',
+    ),
+    (
+        "smooth_profile stops short-circuiting a window of 1",
+        "src/monocr/segmenter.py",
+        "    if window <= 1:\n        return raw_hist",
+        "    if window <= 0:\n        return raw_hist",
+    ),
+    # An off-by-one on the old `hist[: h_img]` scan bound was carried here as an
+    # equivalent mutant until 2026-08-28. The bound itself is gone now: the scan
+    # reads `raw_hist`, which is `np.sum(binary, axis=1)` and so has exactly
+    # `h_img` elements, and a slice that can never bite is worse than no slice.
+    # The property it defended is covered by the two smoothed-profile mutations
+    # above, which are the only way phantom rows come back.
     (
         "opencv-python replaces the headless build",
         "pyproject.toml",

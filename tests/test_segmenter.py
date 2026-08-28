@@ -12,7 +12,9 @@ derived on paper.
 import numpy as np
 from PIL import Image, ImageDraw
 
-from monocr.segmenter import LineSegmenter
+import pytest
+
+from monocr.segmenter import LineSegmenter, smooth_profile
 
 
 def strokes(draw, y0, y1, x0, x1, pitch=8, width=3):
@@ -99,8 +101,12 @@ def test_a_page_cannot_hold_a_line_taller_than_itself():
     kernel, so on a page shorter than `smooth_kernel` the profile describes rows
     the page does not have. Unbounded, this 3-row page produced a run of length
     4: it passed a `min_line_h` of 4 that no 3-row page can satisfy, and handed
-    `_extract_line` an inflated height to take its padding from. The monocr_onnx
-    port bounds the same loop with `range(h_img)`; this one did not.
+    `_extract_line` an inflated height to take its padding from.
+
+    Since 2026-08-28 the scan reads the RAW profile, which is exactly `h_img`
+    long, so the over-long run is structurally impossible rather than clipped by
+    a slice. This test therefore now guards against a regression to the smoothed
+    profile, which is the only way the phantom rows come back.
 
     Not a synthetic-only case. `smooth_kernel` is a constructor argument, so at
     the mon_OCR reference's 15 any crop under 15 rows tall is in range.
@@ -146,6 +152,11 @@ def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
     0 mismatches, so nothing excluded here would have caught the bug. Each
     surviving case is guarded for non-vacuity as well, the same way
     `test_a_page_cannot_hold_a_line_taller_than_itself` is.
+
+    The predicate is kept as-is now that the scan reads the raw profile, because
+    it still selects exactly the pairs that discriminate against a regression to
+    the smoothed profile — bounded or not. On the raw profile every one of these
+    fixtures yields a run of length 1, so they pass structurally.
     """
     cases = [
         (h, kernel)
@@ -177,24 +188,32 @@ def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
 def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
     """The other half of the same bug, and the half no line count can see.
 
-    `_extract_line` pads by a fraction of `r_end - r_start`. With the scan
-    unbounded, `r_end` came off the smoothed profile, so on a page shorter than
-    the smoothing window the pad was a fraction of the profile length instead of
-    the line's own height. The line still existed and still counted as one line
-    — only its shape was wrong, which is why the count sweep above cannot catch
+    `_extract_line` pads by a fraction of `r_end - r_start`. When the scan read
+    the smoothed profile, `r_end` came off it too, so on a page shorter than the
+    smoothing window the pad was a fraction of the profile length instead of the
+    line's own height. The line still existed and still counted as one line —
+    only its shape was wrong, which is why the count sweeps above cannot catch
     this and the CHANGELOG claim about it went untested until 2026-08-28.
 
-    Measured 2026-08-28 on this fixture: 3 rows, ink in row 0 across columns
-    8-20, `smooth_kernel=15`. The run terminated at profile index 14, so `pad_x`
-    was `int(14 * 0.15) == 2` rather than `int(3 * 0.15) == 0`, and the crop came
-    back as (6, 0, 16, 3) where a zero pad gives (8, 0, 12, 3) — four columns of
-    padding the ink never asked for.
+    Fixture: 3 rows, ink in row 0 across columns 8-20, `smooth_kernel=15`.
+    Three measured values, all on 2026-08-28, all on this same fixture:
 
-    (8, 0, 12, 3) is the measured value, not an endorsement of the width. The
+    * Unbounded scan on the smoothed profile — the original bug. The run
+      terminated at profile index 14, so `pad_x` was `int(14 * 0.15) == 2` and
+      the crop came back (6, 0, 16, 3).
+    * Bounded scan on the smoothed profile — the 2026-08-28 morning fix. The run
+      was clipped at `h_img`, giving (8, 0, 12, 3).
+    * Scan on the RAW profile — current. The ink is in row 0 only, so the run is
+      one row long and the crop is (8, 0, 12, 1). Every number here now comes
+      off the line itself.
+
+    (8, 0, 12, 1) is the MEASURED value, not an endorsement of the width. The
     ink spans 13 columns, 8 to 20 inclusive, and `_extract_line` mixes an
     inclusive `x_end` with PIL's exclusive crop, so the last ink column is
-    dropped at zero pad. `monocr_onnx._extract_line` does the same thing, so
-    that off-by-one is a separate, shared question and not this bug.
+    dropped at zero pad. That off-by-one is shared with `monocr_onnx` and with
+    the mon_OCR reference and is deliberately unfixed — see the
+    `_extract_line` docstring. This pin records what the code does; it does not
+    bless the 12.
     """
     strip = np.full((3, 40), 255, dtype=np.uint8)
     strip[0, 8:21] = 0
@@ -205,12 +224,12 @@ def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
         "the fixture has to segment at all, or the next assert is vacuous"
     )
     crop, bbox = lines[0]
-    assert bbox == (8, 0, 12, 3), (
-        f"crop is {bbox}; a 3-row line pads by int(3 * 0.15) == 0 in x and "
-        "int(3 * 0.20) == 0 in y, so any margin here was taken from a height "
-        "the page does not have"
+    assert bbox == (8, 0, 12, 1), (
+        f"crop is {bbox}; the line is one inked row, so it pads by "
+        "int(1 * 0.15) == 0 in x and int(1 * 0.20) == 0 in y — any margin or "
+        "extra height here was taken from a profile, not from the line"
     )
-    assert crop.size == (12, 3)
+    assert crop.size == (12, 1)
 
 
 def test_a_single_line_crop_at_the_model_height_is_not_shredded():
@@ -223,6 +242,174 @@ def test_a_single_line_crop_at_the_model_height_is_not_shredded():
     tall = Image.new("L", (900, 160), 255)
     strokes(ImageDraw.Draw(tall), 40, 120, 20, 880)
     assert len(LineSegmenter().segment(tall)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Which profile the boundaries come off, and which the threshold does
+# ---------------------------------------------------------------------------
+
+
+def two_bands(gap, band_h=12, width=600, x0=50, x1=550, top=20):
+    """Two glyph-blob bands separated by exactly `gap` blank rows.
+
+    Blobs, not a solid bar: a solid bar spanning a text column is a printed rule
+    by this module's own definition and `suppress_page_rules` deletes it before
+    the profile sees it.
+    """
+    img = Image.new("L", (width, top * 2 + 2 * band_h + gap), 255)
+    draw = ImageDraw.Draw(img)
+    strokes(draw, top, top + band_h - 1, x0, x1)
+    strokes(draw, top + band_h + gap, top + 2 * band_h + gap - 1, x0, x1)
+    return img
+
+
+def test_line_boundaries_come_off_the_raw_profile():
+    """A gap narrower than the smoothing window must still split two lines.
+
+    The threshold is calibrated on the smoothed profile, but the boundaries are
+    read off the raw one. Smoothing averages over `smooth_kernel` rows, so a gap
+    narrower than the whole window never reaches zero in the smoothed profile:
+    the ink either side bleeds into it, the bled rows clear the 2% threshold, and
+    two lines come back as one band. The raw profile needs one clean row.
+
+    Measured 2026-08-28 at this module's parameters (min_line_h 10,
+    smooth_kernel 5, threshold_ratio 0.02) on 29 drawn bands of 12 rows:
+    detecting on the smoothed profile returned 1 band against 29 drawn at gaps
+    of 1, 2, 3 and 4 px and matched the raw profile from 5 px up; the raw profile
+    returned all 29 from 1 px. This is the two-band corner of that table — gaps
+    1-4 fuse pre-fix, gap 5 does not, so the pair below is what discriminates.
+    """
+    for gap in (1, 2, 3, 4):
+        assert len(LineSegmenter().segment(two_bands(gap))) == 2, (
+            f"a {gap}px gap fused two lines, so the boundaries are being read "
+            "off the smoothed profile"
+        )
+    assert len(LineSegmenter().segment(two_bands(5))) == 2, (
+        "a 5px gap must split on either profile — if this fails the fixture "
+        "itself is broken, not the profile choice"
+    )
+
+
+def test_an_even_smoothing_window_does_not_widen_to_the_odd_one_above_it():
+    """The even-kernel case, which no sibling binding has.
+
+    numpy's `mode='same'` is a true even-width box: `smooth_profile(raw, 4)` has
+    exactly 4 taps and divides by 4. The hand-rolled loops in the JS, Go and
+    Rust bindings span `2 * (w // 2) + 1`, so an even window there behaves as the
+    odd window above it. Measured here 2026-08-28: the smoothed profile's fusion
+    break point is exactly `smooth_kernel` at every kernel from 1 to 16, and a
+    second from-scratch measurement the same day agreed — kernel 4 fused gaps
+    1-3 and split at 4, kernel 6 fused 1-5 and split at 6, where the hand-rolled
+    `2 * (k // 2) + 1` law would have given 1-4 and 1-6. The two laws agree on
+    odd kernels and part company on every even one.
+
+    Post-fix the raw profile splits at every gap whatever the kernel, which is
+    what this asserts. The parity law itself is only observable on the smoothed
+    profile now, and `test_smooth_profile_is_a_true_window_tap_box` pins it
+    there.
+    """
+    for kernel, gap in ((2, 1), (4, 2), (4, 3), (6, 5), (12, 11)):
+        lines = LineSegmenter(smooth_kernel=kernel).segment(two_bands(gap))
+        assert len(lines) == 2, (
+            f"smooth_kernel={kernel} fused a {gap}px gap into "
+            f"{len(lines)} line(s)"
+        )
+
+
+def test_the_gap_threshold_is_calibrated_on_the_smoothed_profile():
+    """The other half: the threshold basis did NOT move to the raw profile.
+
+    The smoothed max is the LOWER of the two whenever the page's tallest peak is
+    narrower than the smoothing window, so calibrating on it is what keeps faint
+    lines visible. This fixture makes that observable. A dense 1-px row on a
+    1000-px page gives a raw max of 127,500 and a smoothed max of exactly a
+    fifth of it, 25,500 — the smoother flattens a peak it can average over.
+    Beside it sits a faint 20-row band whose every row sums to 2,295, which
+    lands between the two thresholds: 2% of 25,500 is 510, 2% of 127,500 is
+    2,550.
+
+    Measured 2026-08-28, twice and independently: calibrating on the smoothed
+    profile returns this one band, calibrating on the raw profile returns ZERO
+    lines and loses the only real line on the page. So moving the calibration
+    along with the detection would trade a fused-line bug for a dropped-line
+    one.
+
+    An ordinary page cannot tell the two calibrations apart, which is why the
+    fixture is this strange. Smoothing does not lower the peak of a band taller
+    than the window, so `max(smoothed) == max(raw)` in exact float equality on
+    every drawn page tried — 29 bands, gaps 1-20, band heights 5 and up,
+    64,260.0 either way.
+
+    The spike row itself is never a line, being 1 row against a minimum of 10.
+    """
+    strip = np.full((120, 1000), 255, dtype=np.uint8)
+    strip[10, ::2] = 0
+    for x in range(100, 136, 4):
+        strip[40:60, x] = 0
+
+    lines = LineSegmenter().segment(Image.fromarray(strip))
+    assert len(lines) == 1, (
+        f"expected the faint band and nothing else, got {len(lines)} lines "
+        f"{[b for _, b in lines]} — calibrating on the raw profile loses it, "
+        "and counting the 1px spike as a line means min_line_h stopped working"
+    )
+    _crop, (x, y, w, h) = lines[0]
+    assert (x, y, w, h) == (97, 36, 38, 28), (
+        f"the one line is {(x, y, w, h)}, not the faint band at rows 40-59, "
+        "columns 100-132 padded by int(20 * 0.15) == 3 and int(20 * 0.20) == 4"
+    )
+
+
+@pytest.mark.parametrize("window", range(1, 17))
+def test_smooth_profile_is_a_true_window_tap_box(window):
+    """Span and divisor, for even windows as well as odd.
+
+    Three properties, each measured over windows 1-16 on 2026-08-28:
+
+    * The divisor is exactly `window`, so an isolated spike's peak is
+      `spike / window` — 1/2, 1/3, 1/4, ... with no parity step.
+    * A run of exactly `window` zero rows drives at least one output row to
+      zero, and a run of `window - 1` never does. That is the fusion break
+      point `segment` step 5 measures, and it is where the sibling bindings
+      part company: their `2 * (w // 2) + 1` loops span one row more than asked
+      at even windows, so a run of 4 zeros does NOT clear their window 4.
+    * `mode='same'` never returns fewer elements than the kernel, so a window
+      wider than the page yields a profile longer than the page. Only the
+      threshold is read off it.
+    """
+    spike = np.zeros(200, dtype=np.float32)
+    spike[100] = 1000.0
+    out = smooth_profile(spike, window)
+
+    if window <= 1:
+        assert out is spike, "window <= 1 must hand back the raw profile itself"
+    assert len(out) == len(spike)
+    short = np.zeros(3, dtype=np.float32)
+    short[0] = 300.0
+    assert len(smooth_profile(short, window)) == max(3, window), (
+        "mode='same' never returns fewer elements than the kernel, so a window "
+        "wider than the page must yield a profile longer than the page — which "
+        "is why only the threshold is read off it"
+    )
+    assert out.max() == pytest.approx(1000.0 / window), (
+        f"peak is {out.max()}, so the divisor is not exactly {window}"
+    )
+
+    def has_a_zero_row(zeros):
+        profile = np.zeros(200, dtype=np.float32)
+        profile[20:60] = 500.0
+        profile[60 + zeros:100] = 500.0
+        return bool(np.any(smooth_profile(profile, window)[20:100] == 0.0))
+
+    assert has_a_zero_row(window), (
+        f"a run of {window} zero rows never reaches zero at window {window}, "
+        "so the box spans more than its width"
+    )
+    if window > 1:
+        assert not has_a_zero_row(window - 1), (
+            f"a run of {window - 1} zero rows reached zero at window {window}, "
+            "so the box spans less than its width"
+        )
 
 
 # ---------------------------------------------------------------------------

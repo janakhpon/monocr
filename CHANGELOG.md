@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Three correctness fixes to the inference path. None is released yet, and the
+Four correctness fixes to the inference path. None is released yet, and the
 newest released section below describes a segmenter with no suppression pass and an
 inference path with no polarity probe — which is why this section exists rather
 than waiting for a version bump.
@@ -68,6 +68,84 @@ argument — at the mon_OCR reference's 15 any crop under 15 rows tall is in
 range, and drawn fixtures at that window differ from 3 rows to 10.
 Default construction on a page of 5 rows or taller was never affected.
 
+**Line boundaries now come off the raw profile.** The gap threshold is still
+calibrated on the smoothed profile's max — that statistic and that basis are
+unchanged — but the run boundaries are read off the raw row sums. Smoothing
+averages over `smooth_kernel` rows, so a gap narrower than the whole window never
+reaches zero in the smoothed profile: the ink either side bleeds into it, the bled
+rows clear the 2% threshold, and two distinct lines come back as one band.
+
+Measured at this package's own parameters — `min_line_h` 10, `smooth_kernel` 5,
+`threshold_ratio` 0.02 — on 29 drawn glyph-blob bands of 12 rows each:
+
+| gap between bands | detecting on the smoothed profile | detecting on the raw profile |
+|---|---:|---:|
+| 1, 2, 3, 4 px | 1 band of 29 drawn | 29 of 29 |
+| 5 px and up | 29 of 29 | 29 of 29 |
+
+The break point is the smoother's full width — exactly `smooth_kernel`, at every
+window from 1 to 16, **even ones included**. numpy's `mode='same'` is a true k-tap
+box at both parities, so a zero-run of length g drives an output row to zero iff
+`g >= k`; at `g == k - 1` the smoothed minimum is `band_sum / k`, far above a 2%
+threshold, which is why the count jumps 1 to 29 with no intermediate value.
+
+That is this package's law and not the siblings'. The JS, Go and Rust bindings
+hand-roll `[i - k//2, i + k//2]`, which is `2 * (w // 2) + 1` taps, so their break
+points run 1,3,3,5,5,7,… The two laws agree on odd windows and part company on every
+even one, where this package breaks a row **earlier**: window 4 fused gaps of 1-3 px
+here against 1-4 there, window 6 fused 1-5 against 1-6. The absence of an
+even-window case is why this went unnoticed. `smooth_kernel` is a constructor
+argument, so a caller who raised it widened the failure with it.
+
+The two decisions had to be split rather than moved together, and that is a
+correctness argument, not a convention. The smoothed max is the lower of the two
+whenever the page's tallest peak is narrower than the smoothing window, so
+calibrating on it keeps faint lines visible. On a 1000-px page carrying a dense 1-px
+spike row, the raw max is 127,500 and the smoothed max 25,500; a faint 20-row band
+summing 2,295 a row sits between the resulting thresholds of 2,550 and 510.
+Calibrating on the smoothed profile finds that band. Calibrating on the raw profile
+returns **zero** lines and loses the only real line on the page — a fused-line bug
+traded for a dropped-line one.
+
+On an ordinary page the two calibrations are indistinguishable, which needs saying
+because it means a test at the default ratio proves nothing about them. Smoothing
+does not lower the peak of a band taller than the window, so `max(smoothed) ==
+max(raw)` in exact float equality on every drawn page tried — 29 bands, gaps 1-20,
+band heights 5 and up, 64,260.0 either way. Band heights 1-4 at kernel 5 gave
+12,852, 25,704, 38,556 and 51,408, i.e. exactly `peak / kernel` until the band
+outgrows the window. That is why the calibration test needs a sub-kernel-height
+spike row.
+
+The `hist[:h_img]` bound on the scan is gone rather than left looking load-bearing.
+`np.sum(binary, axis=1)` has exactly `h_img` elements, so detecting on it makes the
+phantom rows above structurally impossible instead of guarded, and the two
+short-page tests now defend against a regression to the smoothed profile.
+
+This closes the divergence `monocr-onnx` opened at its commit a3e3dba. Read on
+2026-08-28, this package was the last of six implementations still detecting on the
+smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the mon_OCR
+reference all read boundaries off the raw one. Sibling trees are other agents' work
+in progress, so treat that as a dated observation.
+
+### Recorded, not fixed
+
+`_extract_line` mixes an inclusive last-ink-column index with PIL's exclusive
+`crop`, so every crop it returns is one pixel short on the right: the left pad is
+`pad_x` columns and the right pad `pad_x - 1`, and the reported width understates
+the ink by one. Ink is only *lost* at `pad_x == 0`, which needs a caller passing
+`min_line_h` below 7 — `pad_x = int(h_raw * 0.15)` and `h_raw >= min_line_h`, so the
+default 10 forces `pad_x >= 1` and the last ink column is always inside. The
+defaults cannot reach the data-loss path.
+
+Unfixed on purpose. The same arithmetic is in `monocr_onnx` and in the mon_OCR
+reference, whose `pad_x` floor of an absolute 10 px means no setting there can lose
+ink. Correcting it in one place shifts every crop by a pixel and breaks parity with
+two published packages and the corpus every page-level CER in this ecosystem was
+measured against — an owner decision, not a cleanup. The reachability, the
+asymmetry and the sibling and reference line numbers are recorded in the
+`_extract_line` docstring, and the one test that pins a crop geometry says its
+value is measured rather than correct.
+
 ### Lineage, stated where it is read
 
 `LineSegmenter`'s docstring claimed step with `monocr_onnx` and said nothing about
@@ -75,9 +153,9 @@ the mon_OCR reference. The first half checks out: every constant is equal, adapt
 block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
 costly half. This segmenter thresholds at 0.02 of the profile **max** where the
 reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
-any number, not a different tuning — detects runs on the smoothed profile where the
-reference detects on the raw one, and has no pre-blur, no smear, no gap merge, no
-outlier rejection and no tiling.
+any number, not a different tuning — and has no pre-blur, no smear, no gap merge, no
+outlier rejection and no tiling. It also detected runs on the smoothed profile where
+the reference detects on the raw one; that one is now closed, see above.
 
 The docstring now says all of that, plus the four ways it differs from
 `monocr_onnx` itself and the precondition it relies on: `MonOCR._prepare_image`,
@@ -103,14 +181,17 @@ And the parity guard no longer defends only numbers. It now names the four thing
 that must agree — which profile the boundaries come off, which statistic the
 threshold is calibrated on, which quantity each constant is a fraction of, and
 only then the value — because a formula change moves the cuts with every number
-left equal and a constants diff will not see it. That is live: observed
-2026-08-28, `monocr-onnx`'s Python binding now detects boundaries on the raw
-profile while this package still detects on the smoothed one, with every constant
-still equal. Matching it is sequenced separately and was not done here.
+left equal and a constants diff will not see it. The first of the four was live
+when this was written — observed 2026-08-28, `monocr-onnx`'s Python binding
+detecting boundaries on the raw profile while this package detected on the
+smoothed one, every constant still equal — and is now closed. Items 2 to 4 are
+open, and item 2 is the one to leave alone: the max-versus-mean split is a tuning
+constant the reference's spec header forbids reconciling.
 
-The reason the unsliced `np.max(hist)` beside the sliced scan is correct is now
-recorded at the line, because slicing both — the obvious tidy-up — would break
-calibration parity with `monocr-onnx`, which also takes its max unsliced.
+The reason `np.max` stays unsliced and on the smoothed profile is now recorded at
+the line, because slicing it or moving it to the raw profile — either obvious
+tidy-up — would break calibration parity with `monocr-onnx`, which also takes its
+max unsliced off the smoothed profile.
 
 No constant was changed. Which set is right is still a measurement question:
 individual changes on both sides carry their own measurements, but nothing in
