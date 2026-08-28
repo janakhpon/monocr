@@ -118,6 +118,145 @@ def smooth_profile(raw_hist, window):
     return np.convolve(raw_hist, kernel, mode="same")
 
 
+# Two runs separated by at most this many rows are one text line, provided the
+# raw profile never reaches zero inside the gap.
+#
+# WHY THIS EXISTS, measured 2026-08-28 at THIS module's parameters (min_line_h
+# 10, smooth_kernel 5, threshold_ratio 0.02) over 55 real pages -- 49 PDF pages
+# rendered at 300 DPI plus 6 photographed pages -- decoded with the pinned model
+# revision d3d9d5e.
+#
+# Detecting boundaries on the raw profile (2026-08-28, one commit before this
+# one) splits a single line wherever one row dips below the gap threshold, and in
+# Mon that happens between the upper diacritic zone and the consonant bodies.
+# Observed on page 1 of `party_mission.pdf` at 300 DPI: the threshold was
+# `0.02 * 84,100 = 1,682`, which is 6.6 ink pixels a row, and the six rows 303-308
+# each carried exactly 5 ink pixels -- under the threshold, over zero. That cut
+# one line into an 8-row strip of glyph tops (rows 295-303) and a 32-row
+# decapitated body (rows 309-341). The strip is shorter than `min_line_h`, so it
+# was DISCARDED and only the body reached the model, missing its asats.
+#
+# What the merge buys, same 55 pages, same model, one function swapped:
+#
+#                       runs   bands   garbage bands   clean characters
+#   raw, no merge       1,779  1,245    65  (5.2%)     32,290
+#   raw + this merge    1,570  1,266    58  (4.6%)     32,559
+#
+# 209 run boundaries closed; band count RISES because a merged strip-plus-body
+# clears `min_line_h` where the strip alone did not. Garbage is a band over half
+# Mon digits and longer than 3 characters, the metric `mon_OCR`
+# `docs/AUDIT-2026-08-B.md` F-69 defines -- the length clause keeps correctly-read
+# page numbers out of the count. 34 pages gained characters and NONE lost any, so
+# the garbage number is not bought by dropping text.
+#
+# These are this module's numbers and they are SMALLER than the sibling figures in
+# F-69 (26.6% garbage down to 0.7%). Do not substitute those. The corpus here is
+# mostly digitally typeset PDF, whose inter-line gaps are clean and wide; the
+# 145-page image scan F-69 measured is not in this workspace. The mechanism is the
+# same and the direction is the same on both metrics.
+#
+# A 1-row gap holding ink is not a line boundary at any resolution. This is the
+# reference's rule (`mon_OCR` `_MIN_GAP_MERGE`, `segmenter.py` step 8), ported
+# with its value, and it is the half of the dual histogram the ports left behind:
+# raw detection needs a merge to be safe, and every port took the first without
+# the second. `monocr-onnx` closed it in Rust at `9135cab`.
+#
+# The value 10 is carried across rather than re-derived, which the reference's own
+# header forbids doing with a tuning constant. It survives here on the evidence
+# above, and on where this module's threshold sits relative to the two it is being
+# borrowed from. Measured over the same 55 pages, as a multiple of this module's
+# `0.02 * max(smoothed)`:
+#
+#     Rust binding, 0.05 * mean(non-zero)     0.55x mean, 0.49x median
+#     mon_OCR reference, 0.12 * mean          1.31x mean, 1.18x median
+#
+# So this module's threshold is ROUGHLY BETWEEN THEM -- about twice the Rust
+# binding's and about three quarters of the reference's. A higher threshold makes
+# more rows read as gaps and so needs the merge more; 10 rows is not at the edge
+# of either neighbour's regime, which is the most this measurement supports. It
+# does NOT establish that 10 is optimal here, and nothing in these repositories
+# can: no corpus scores a segmenter against labelled lines.
+#
+# The three clauses do different jobs. The gap bound refuses to merge real
+# inter-line spacing even when overlapping diacritics hold the raw profile above
+# zero across it -- upstream that unmerged case collapsed 3 PDF lines into 1. The
+# ink test refuses to merge across a genuine clean break, which always has at
+# least one empty row. The ceiling bounds the damage when both are satisfied
+# wrongly; see `merge_runs`.
+MIN_GAP_MERGE = 10
+
+
+def merge_runs(runs, raw_hist, max_gap):
+    """Fuse runs that a single sub-threshold row split apart.
+
+    Merges ``runs[i]`` into ``runs[i-1]`` when the gap between them is at most
+    ``max_gap`` rows AND (every row in the gap carries ink OR one of the two runs
+    is at most half a typical line) AND the result is at most twice a typical
+    line. See ``MIN_GAP_MERGE`` for why, and for the measurement.
+
+    ``raw_hist`` must be the RAW profile. The smoothed one bleeds ink into a gap
+    that is genuinely empty, so every gap would read as ink-holding and the ink
+    clause would stop refusing anything.
+
+    A module-level function taking the profile rather than a method, so the
+    arithmetic is testable without a page, a mask or a model.
+
+    ``typical`` is the page's own MEDIAN run height, from the runs as detected,
+    and both height tests are relative to it rather than to the neighbouring run.
+    That is a correction, not a preference: judging a fragment against its
+    neighbour CASCADES. The merge mutates the accumulated run, so every merge
+    makes it taller, and a taller run makes the next line look more like a
+    fragment. Measured upstream 2026-08-28 on page 47 of a 56-page book: 36 bands
+    collapsed to 10, with single bands of 534, 632 and 732 rows holding a dozen
+    text lines each, and the page lost 92% of its readable characters.
+
+    ``ceiling`` is the backstop for that cascade -- the fragment test alone cannot
+    bound the result, and one runaway band costs a whole page. Twice rather than
+    tighter because a legitimate merge of two halves lands at about one typical
+    line and must not be refused. It is load-bearing here and not only in theory:
+    over the 55 pages measured for ``MIN_GAP_MERGE`` the gap bound and the
+    ink-or-fragment clause together admitted 691 candidate merges and the ceiling
+    refused 482 of them. Both of the other clauses earn their place on the same
+    input: 670 of those candidates had ink across the gap and 21 passed on the
+    fragment test alone.
+
+    Do NOT reach for a vertical smear instead. At reach 1 it closes 2-row gaps,
+    which is the tightest real line spacing on these pages, so it fuses lines
+    that are genuinely separate -- the case
+    ``test_two_real_lines_two_rows_apart_stay_separate`` pins.
+    """
+    if not runs:
+        return []
+
+    heights = sorted(r1 - r0 for r0, r1 in runs)
+    typical = max(1, heights[len(heights) // 2])
+    ceiling = typical * 2
+
+    merged = []
+    for r0, r1 in runs:
+        if merged:
+            last0, last1 = merged[-1]
+            gap_size = max(0, r0 - last1)
+            # An out-of-range row counts as NO ink, not as skipped. Indexing
+            # past the profile cannot happen from the run collector, but a
+            # caller passing its own runs must not get a merge out of a row that
+            # does not exist.
+            gap_has_ink = all(
+                0 <= y < len(raw_hist) and raw_hist[y] > 0
+                for y in range(last1, r0)
+            )
+            fragment = 2 * (r1 - r0) <= typical or 2 * (last1 - last0) <= typical
+            if (
+                gap_size <= max_gap
+                and (gap_has_ink or fragment)
+                and (r1 - last0) <= ceiling
+            ):
+                merged[-1] = (last0, r1)
+                continue
+        merged.append((r0, r1))
+    return merged
+
+
 class LineSegmenter:
     """
     Robust line segmenter using Horizontal Projection Profiles with Smoothing.
@@ -159,9 +298,10 @@ class LineSegmenter:
     them: 0.02 of the max and 0.12 of the mean are different algorithms at any
     number. The reference detects run boundaries on the raw profile while
     calibrating the threshold on the smoothed one, which as of 2026-08-28 this
-    module does too, and runs four stages absent here entirely -- a pre-blur, a
-    morphological smear, a bounded gap merge, and outlier rejection. Expect
-    different line counts on the same page.
+    module does too, and as of 2026-08-28 the reference's bounded gap merge is
+    here as well -- see ``MIN_GAP_MERGE``, ported with its value of 10. Three
+    reference stages are still absent entirely: a pre-blur, a morphological
+    smear, and outlier rejection. Expect different line counts on the same page.
 
     The crop geometry parts company the same way, and this list omitted it until
     2026-08-28. ``_extract_line`` here pads horizontally by
@@ -388,22 +528,37 @@ class LineSegmenter:
         # profile rather than against a missing slice.
         is_text_row = raw_hist > threshold
 
-        lines: List[Tuple[Image.Image, Tuple[int, int, int, int]]] = []
+        runs: List[Tuple[int, int]] = []
         start_y = None
 
         for y, is_text in enumerate(is_text_row):
             if is_text and start_y is None:
                 start_y = y # Start of line
             elif not is_text and start_y is not None:
-                # End of line (found a gap). Anything shorter than min_line_h is
-                # a speckle, not a line.
-                if (y - start_y) >= self.min_line_h:
-                    self._extract_line(binary, img_np, start_y, y, image, lines)
+                runs.append((start_y, y))
                 start_y = None
 
         # Handle last block
-        if start_y is not None and (h_img - start_y) >= self.min_line_h:
-            self._extract_line(binary, img_np, start_y, h_img, image, lines)
+        if start_y is not None:
+            runs.append((start_y, h_img))
+
+        # 6. Fuse runs a single sub-threshold row split apart, BEFORE the
+        # height filter. See `MIN_GAP_MERGE` for the measurement.
+        #
+        # The order is the reference's and it matters. A diacritic strip can be
+        # shorter than `min_line_h` -- on the measured page it was 8 rows against
+        # a minimum of 10 -- so filtering first discards the strip and leaves the
+        # decapitated body behind as a whole line, which is the worst of the
+        # three outcomes: no error, no missing band, and a line read without its
+        # asats.
+        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE)
+
+        # 7. Extract. Anything still shorter than min_line_h is a speckle, not a
+        # line.
+        lines: List[Tuple[Image.Image, Tuple[int, int, int, int]]] = []
+        for r_start, r_end in runs:
+            if (r_end - r_start) >= self.min_line_h:
+                self._extract_line(binary, img_np, r_start, r_end, image, lines)
 
         return lines
 

@@ -90,10 +90,14 @@ MUTATIONS = [
         "        x1 = 0\n        x2 = gray.shape[1]",
     ),
     (
+        # Search string updated 2026-08-28: the scan now collects every run and
+        # filters after the merge, so the comparison is on the run tuple. A
+        # mutation whose string no longer matches ABORTS this harness rather
+        # than failing, so an edit that moves one has to move it here too.
         "the minimum line height is dropped, so speckles become lines",
         "src/monocr/segmenter.py",
-        "if (y - start_y) >= self.min_line_h:",
-        "if (y - start_y) >= 1:",
+        "if (r_end - r_start) >= self.min_line_h:",
+        "if (r_end - r_start) >= 1:",
     ),
     (
         "rule detection pins the erosion border, losing the edge overhang",
@@ -157,6 +161,76 @@ MUTATIONS = [
     # `h_img` elements, and a slice that can never bite is worse than no slice.
     # The property it defended is covered by the two smoothed-profile mutations
     # above, which are the only way phantom rows come back.
+
+    # The bounded gap merge. Raw-profile detection without it splits Mon lines at
+    # the diacritic zone; see `MIN_GAP_MERGE` for the 55-page measurement.
+    (
+        "the merge call is deleted from the pipeline, leaving raw detection alone",
+        "src/monocr/segmenter.py",
+        "        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE)",
+        "        runs = runs",
+    ),
+    (
+        "the merge runs AFTER the height filter, so a short strip is discarded",
+        "src/monocr/segmenter.py",
+        "        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE)",
+        "        runs = merge_runs(\n"
+        "            [(a, b) for a, b in runs if (b - a) >= self.min_line_h],\n"
+        "            raw_hist,\n"
+        "            MIN_GAP_MERGE,\n"
+        "        )",
+    ),
+    (
+        "the merge drops its ink clause",
+        "src/monocr/segmenter.py",
+        "                and (gap_has_ink or fragment)",
+        "                and fragment",
+    ),
+    (
+        "the merge drops its fragment clause",
+        "src/monocr/segmenter.py",
+        "                and (gap_has_ink or fragment)",
+        "                and gap_has_ink",
+    ),
+    (
+        "the merge drops its gap bound, so any ink-bridged gap fuses",
+        "src/monocr/segmenter.py",
+        "                gap_size <= max_gap\n",
+        "                True\n",
+    ),
+    (
+        "the merge ceiling drops from two typical lines to one",
+        "src/monocr/segmenter.py",
+        "    ceiling = typical * 2",
+        "    ceiling = typical * 1",
+    ),
+    (
+        "the merge ceiling is removed, so merges cascade unbounded",
+        "src/monocr/segmenter.py",
+        "                and (r1 - last0) <= ceiling",
+        "                and True",
+    ),
+    (
+        "a fragment is judged against its NEIGHBOUR instead of the page median",
+        "src/monocr/segmenter.py",
+        "            fragment = 2 * (r1 - r0) <= typical or 2 * (last1 - last0) <= typical",
+        "            fragment = (\n"
+        "                2 * (r1 - r0) <= (last1 - last0)\n"
+        "                or 2 * (last1 - last0) <= (r1 - r0)\n"
+        "            )",
+    ),
+    (
+        "the fragment ratio loosens from half a typical line to a whole one",
+        "src/monocr/segmenter.py",
+        "            fragment = 2 * (r1 - r0) <= typical or 2 * (last1 - last0) <= typical",
+        "            fragment = (r1 - r0) <= typical or (last1 - last0) <= typical",
+    ),
+    (
+        "the merge reads the SMOOTHED profile, so every gap looks ink-holding",
+        "src/monocr/segmenter.py",
+        "        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE)",
+        "        runs = merge_runs(runs, smoothed_hist, MIN_GAP_MERGE)",
+    ),
     (
         "opencv-python replaces the headless build",
         "pyproject.toml",

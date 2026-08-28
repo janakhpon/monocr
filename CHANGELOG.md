@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Four correctness fixes to the inference path. None is released yet, and the
+Five correctness fixes to the inference path. None is released yet, and the
 newest released section below describes a segmenter with no suppression pass and an
 inference path with no polarity probe — which is why this section exists rather
 than waiting for a version bump.
@@ -150,6 +150,84 @@ smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the mon_O
 reference all read boundaries off the raw one. Sibling trees are other agents' work
 in progress, so treat that as a dated observation.
 
+**Runs split by a single sub-threshold row are now merged back.** Raw-profile
+detection, the fix directly above, is unsafe on its own and shipping it alone was a
+regression. Mon stacks diacritics above the base line, and at print resolution one
+row between the diacritic zone and the consonant bodies dips below the gap
+threshold without reaching zero. Raw detection cuts there: a strip of glyph tops
+that decodes to Mon digits, and a decapitated body that decodes without its asats.
+
+`merge_runs` fuses a run into the previous one when the gap is at most
+`MIN_GAP_MERGE` (10) rows, **and** either every row in the gap carries ink or one of
+the two runs is at most half a typical line, **and** the result is at most twice a
+typical line. `typical` is the page's own median run height. The merge runs
+**before** the `min_line_h` filter, because a diacritic strip can be shorter than
+the minimum and filtering first discards the strip and leaves the decapitated body
+behind as a whole line.
+
+Measured at this package's own parameters — `min_line_h` 10, `smooth_kernel` 5,
+`threshold_ratio` 0.02 — over 55 real pages, 49 PDF pages rendered at 300 DPI plus
+6 photographed pages, decoded with the pinned model revision `d3d9d5e`. Same
+pipeline, same corpus, one function swapped:
+
+| | runs | bands | garbage bands | clean characters |
+|---|---:|---:|---:|---:|
+| raw detection, no merge | 1,779 | 1,245 | 65 (5.2%) | 32,290 |
+| raw detection + this merge | 1,570 | **1,266** | **58 (4.6%)** | **32,559** |
+
+Band count *rises* while run count falls, because a merged strip-plus-body clears
+`min_line_h` where the strip alone did not. 34 pages gained characters and **none
+lost any**, so the garbage figure is not bought by discarding text. Garbage is a
+band over half Mon digits and longer than 3 characters — the length clause keeps
+correctly-read page numbers out of the count.
+
+**These numbers are smaller than the sibling figures** in `mon_OCR`
+`docs/AUDIT-2026-08-B.md` F-69, which measured 26.6% garbage falling to 0.7%. The
+corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
+wide; the 145-page image scan F-69 measured is not in this workspace. The mechanism
+and the direction are the same on both metrics. Do not carry F-69's table into this
+package's source.
+
+The concrete case, on page 1 of `party_mission.pdf` at 300 DPI: the smoothed max was
+84,100, so the threshold was `0.02 * 84,100 = 1,682`, or 6.6 ink pixels a row. Rows
+303-308 each carried exactly **5** ink pixels — under the threshold, over zero — and
+split one line into an 8-row strip and a 32-row body. The 8-row strip is under
+`min_line_h`, so before this change it was dropped and only the decapitated body
+reached the model.
+
+Three design points, each of which cost a rebuild upstream and each of which has a
+test and a mutation here:
+
+- **The height test is against the page median, not the neighbouring run.** Against
+  the neighbour it cascades: the merge grows the accumulated run, a taller run makes
+  the next line look more like a fragment, and upstream one page went from 36 bands
+  to 10 with single bands of 534, 632 and 732 rows and lost 92% of its readable
+  characters.
+- **The ceiling of twice a typical line is load-bearing, not decoration.** Over the
+  55 pages the gap bound and the ink-or-fragment clause together admitted 691
+  candidate merges and the ceiling refused 482 of them.
+- **A vertical smear is not a substitute.** At reach 1 it closes 2-row gaps, the
+  same as the tightest real line spacing on these pages, so it fuses lines that are
+  genuinely separate.
+
+This closes the incomplete port `monocr-onnx` fixed in Rust at `9135cab`. Two of
+its test fixtures do not transfer and were not copied, both for the same reason —
+another clause absorbs the case the fixture claims to isolate, so the corresponding
+mutation survives. Measured here 2026-08-28:
+
+- `a_dip_between_equal_halves_merges_on_ink_alone` uses 40-row halves against 82-row
+  lines, which puts the page median at 82 and makes `2 * 40 <= 82` true, so the
+  fragment clause fires as well and dropping the ink clause **survives**. The
+  fixture here uses 60-row lines instead, giving a median of 60.
+- `a_wide_gap_is_a_line_boundary_however_much_ink_it_holds` uses two 40-row runs 15
+  rows apart, whose merged band would be 95 rows against a ceiling of 80 — so the
+  ceiling refuses it and dropping the gap bound **survives**. The fixture here uses
+  a 24-row pair on a page whose median line is 40, giving a merged band of 64 rows,
+  inside the ceiling.
+
+Both were written that way here first and both mutations survived the first harness
+run, which is how they were found.
+
 ### Recorded, not fixed
 
 `_extract_line` mixes an inclusive last-ink-column index with PIL's exclusive
@@ -176,9 +254,10 @@ the mon_OCR reference. The first half checks out: every constant is equal, adapt
 block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
 costly half. This segmenter thresholds at 0.02 of the profile **max** where the
 reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
-any number, not a different tuning — and has no pre-blur, no smear, no gap merge, no
-outlier rejection and no tiling. It also detected runs on the smoothed profile where
-the reference detects on the raw one; that one is now closed, see above.
+any number, not a different tuning — and has no pre-blur, no smear, no outlier
+rejection and no tiling. It also detected runs on the smoothed profile where the
+reference detects on the raw one, and had no gap merge; both of those are now
+closed, see above.
 
 The docstring now says all of that, plus the four ways it differs from
 `monocr_onnx` itself and the precondition it relies on: `MonOCR._prepare_image`,
