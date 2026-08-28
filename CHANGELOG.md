@@ -166,9 +166,10 @@ superset from `9135cab`; from the reference come the constant 10 and the orderin
 are the Rust binding's.
 
 `merge_runs` fuses a run into the previous one when the gap is at most
-`MIN_GAP_MERGE` (10) rows, **and** either every row in the gap carries ink or one of
-the two runs is at most half a typical line, **and** the result is at most twice a
-typical line. `typical` is the page's own median run height. The merge runs
+`MIN_GAP_MERGE` (10) rows, **and** either every row in the gap carries ink or the
+shorter of the two runs is at most half a typical line while the taller one is at
+least `min_line_h`, **and** the result is at most twice a typical line. `typical` is
+the page's own median run height over the runs that could BE a line. The merge runs
 **before** the `min_line_h` filter, because a diacritic strip can be shorter than
 the minimum and filtering first discards the strip and leaves the decapitated body
 behind as a whole line.
@@ -243,22 +244,106 @@ mutation survives. Measured here 2026-08-28:
 Both were written that way here first and both mutations survived the first harness
 run, which is how they were found.
 
+**Speckle no longer sets the page's typical line height, and a fragment no longer
+attaches to another fragment.** The merge shipped with two of its four decisions.
+Both gaps were recorded in the source below as known limitations; one of them said
+so with a parity argument that has since stopped being true.
+
+`typical` was medianed over EVERY collected run. The merge deliberately runs before
+the height filter, so its input still holds every speck the profile found, and
+medianing over all of them let noise decide what a typical line is — and the ceiling
+of `typical * 2` with it. `typical` is now the median over runs at least
+`min_line_h` tall, falling back to the unfiltered median when none qualify. The
+fallback is safe rather than principled: on such a page the height filter discards
+everything anyway, so no crop depends on the value.
+
+The fragment clause was `2 * ha <= typical or 2 * hb <= typical` — nothing stopped a
+fragment attaching to another fragment. It is now
+`2 * min(ha, hb) <= typical and max(ha, hb) >= min_line_h`. Measured upstream in
+Rust, twelve 2-row specks chained through the unguarded clause into one 46-row band,
+which clears the height filter and is handed to the recogniser as a line.
+
+Measured here 2026-08-29 at this package's own parameters — `min_line_h` 10,
+`smooth_kernel` 5, `threshold_ratio` 0.02 — over the same 55 real pages, 49 page
+renders plus 6 photographs. Segmentation only: the change is entirely in run and
+band geometry, so nothing here needs the model. The run collector was replayed and
+the replay checked against a real `LineSegmenter().segment()` band count on five
+pages, exact on all five.
+
+| | before | after |
+|---|---:|---:|
+| runs collected | 1,579 | 1,579 |
+| runs under `min_line_h` | 458 (29.0%) | 458 (29.0%) |
+| pages with `typical` under `min_line_h` | 6 | **0** |
+| pages where the merge is a bit-for-bit no-op | 12 | 10 |
+| runs eliminated by merging | 189 | **440** |
+| bands returned | 1,120 | 1,036 |
+| bands made only of sub-`min_line_h` runs | 28 | 48 |
+
+21 of the 55 pages change. The band count *falls* here, the opposite direction from
+the table above, and both are right: raising a collapsed `typical` raises the ceiling
+with it, so merges the ceiling used to refuse now happen. `mon_e_lib.pdf` page 15 is
+the clearest case — its run heights are bimodal, 17 runs at 22-26 rows and 17 at
+51-52, because half its lines were split at the diacritic zone. The unfiltered median
+landed at 23, so a ceiling of 46 refused every rejoin; the filtered median is 51 and
+the page goes from 35 bands to 19, which is about one band per line.
+
+Band count fell on 16 pages and rose on 3. Nothing here scores those bands against
+labelled lines, so read the direction as the mechanism working, not as an accuracy
+result — the same caveat the entry above carries.
+
+**These run totals do not reproduce the 1,779 in the table above**, and the
+difference is the render, not the code. The staged page images used here are
+2426 px wide on a 612 pt page, about 285 DPI; the earlier entry describes 300 DPI
+renders, which split more lines at the threshold. Same pages, coarser raster, 200
+fewer runs. Stated rather than reconciled, because the earlier render was not kept.
+
+The out-of-range gap now has a test and a mutation of its own. `gap_has_ink`
+indexes with an explicit `0 <= y < len(raw_hist)` bound, so a gap running past the
+profile reads as NOT inked, which is what all four `monocr-onnx` bindings answer.
+That was already correct here and stays correct; what was missing was anything
+holding it. The plausible wrong version is
+`np.all(raw_hist[last1:r0] > 0)` — a numpy slice truncates silently, an entirely
+out-of-range gap becomes an empty slice, and `np.all` of nothing is True. The
+sibling Python binding shipped exactly that and merged across rows that do not
+exist.
+
+Checked against the shared oracle as well as the local fixtures: all 18 cases in
+`monocr-monorepo/shared/segmentation-fixtures/merge-cases.json`, which is generated
+from a statement of the four decisions rather than from any port, agree with this
+implementation. That fixture is not wired into this package's suite — it lives in a
+repository `monocr` does not depend on, and a test that skips when a sibling
+checkout is missing is worse than no test.
+
+`scripts/mutate.py` carries 43 mutations, all killed, including six on the two new
+decisions: the all-runs median, the missing fallback, the dropped line guard, the
+guard testing the shorter run instead of the taller, the ratio measuring the taller
+run, and both decisions reverted together. The last one needed the harness to accept
+more than one edit per mutation, because the two decisions MASK each other — an
+unfiltered `typical` collapses the ceiling far enough that an unguarded fragment
+clause reaches the right answer, so the pair together is a different mutant from
+either alone.
+
 ### Recorded, not fixed
 
-**The merge's `typical` is a median over runs that `min_line_h` will discard.** It is
-computed before the height filter — which is the whole point of the ordering — so
-speckles count toward it. Measured over the 55 pages above: 534 of 1,779 runs (30%)
-are under `min_line_h`, and on 8 of the 55 that drives `typical` below 10.
-`mon_e_lib.pdf` page 41 reaches `typical` 2, so a ceiling of 4, against a median of
-35 over its runs that survive the filter — the merge is effectively off on exactly
-the most fragmented pages.
+**The merge's line guard is on the fragment clause only.** `gap_has_ink` carries no
+such guard, so a run of speckle whose every gap row holds ink still chains into a
+band that clears `min_line_h`. That is where the 28 -> 48 in the table above comes
+from: every one of those bands was admitted by the ink clause and none by the
+fragment clause in either form, and they land on the two most speckled pages,
+`mon_e_lib.pdf` page 11 (2 -> 13) and page 41 (0 -> 11), where the collapsed ceiling
+used to refuse them for the wrong reason.
 
-Taking the median over runs already at or above `min_line_h`, falling back to all
-runs when none qualify, fixes it and changes none of the ten new fixtures. Left alone
-because `monocr-onnx` and the reference both compute over the unfiltered list, so
-changing it here alone is a parity divergence and an owner decision — the same
-argument as the `_extract_line` pad below. Found by an independent review of this
-change, not by a test.
+Guarding the ink clause the same way is not an obvious fix and was not attempted. An
+ink-bridged gap means the profile never reached zero, which is the signal that the
+split was the threshold's doing rather than a real break — the case the clause exists
+to rescue. All four `monocr-onnx` bindings share this, so it is a design question for
+the family rather than a local cleanup.
+
+**The merge's `typical` was a median over runs that `min_line_h` discards.** Fixed
+2026-08-29; see the entry above. The reason recorded here for leaving it — that
+`monocr-onnx` and the reference both median over the unfiltered list — had stopped
+being true by the time it was read again.
 
 `_extract_line` mixes an inclusive last-ink-column index with PIL's exclusive
 `crop`, so every crop it returns is one pixel short on the right: the left pad is

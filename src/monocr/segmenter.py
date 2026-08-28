@@ -207,13 +207,14 @@ def smooth_profile(raw_hist, window):
 MIN_GAP_MERGE = 10
 
 
-def merge_runs(runs, raw_hist, max_gap):
+def merge_runs(runs, raw_hist, max_gap, min_line):
     """Fuse runs that a single sub-threshold row split apart.
 
     Merges ``runs[i]`` into ``runs[i-1]`` when the gap between them is at most
-    ``max_gap`` rows AND (every row in the gap carries ink OR one of the two runs
-    is at most half a typical line) AND the result is at most twice a typical
-    line. See ``MIN_GAP_MERGE`` for why, and for the measurement.
+    ``max_gap`` rows AND (every row in the gap carries ink OR the shorter of the
+    two runs is at most half a typical line while the taller one is at least
+    ``min_line``) AND the result is at most twice a typical line. See
+    ``MIN_GAP_MERGE`` for why, and for the measurement.
 
     ``raw_hist`` must be the RAW profile. The smoothed one bleeds ink into a gap
     that is genuinely empty, so every gap would read as ink-holding and the ink
@@ -222,12 +223,11 @@ def merge_runs(runs, raw_hist, max_gap):
     A module-level function taking the profile rather than a method, so the
     arithmetic is testable without a page, a mask or a model.
 
-    ``typical`` is the page's own MEDIAN run height, from the runs as detected,
-    and both height tests are relative to it rather than to the neighbouring run.
-    That is a correction, not a preference: judging a fragment against its
-    neighbour CASCADES. The merge mutates the accumulated run, so every merge
-    makes it taller, and a taller run makes the next line look more like a
-    fragment. Measured upstream 2026-08-28 on page 47 of a 56-page book: 36 bands
+    ``typical`` is the page's own MEDIAN run height and both height tests are
+    relative to it rather than to the neighbouring run. That is a correction, not
+    a preference: judging a fragment against its neighbour CASCADES. The merge
+    mutates the accumulated run, so every merge makes it taller, and a taller run
+    makes the next line look more like a fragment. Measured upstream 2026-08-28 on page 47 of a 56-page book: 36 bands
     collapsed to 10, with single bands of 534, 632 and 732 rows holding a dozen
     text lines each, and the page lost 92% of its readable characters.
 
@@ -246,28 +246,47 @@ def merge_runs(runs, raw_hist, max_gap):
     that are genuinely separate -- the case
     ``test_two_real_lines_two_rows_apart_stay_separate`` pins.
 
-    KNOWN LIMITATION, measured here 2026-08-28 and NOT fixed. ``typical`` is the
-    median over EVERY collected run, including the speckles that ``min_line_h``
-    discards two steps later, so a speckle-heavy page can drive it below a real
-    line height and the ceiling with it. Over the 55 pages behind
-    ``MIN_GAP_MERGE``, 534 of 1,779 runs (30%) are under ``min_line_h``, and on 8
-    of the 55 that pushes ``typical`` under 10 -- ``mon_e_lib.pdf`` page 41 reaches
-    ``typical`` 2 and so a ceiling of 4, against a median of 35 over its runs that
-    survive the filter. On those pages the merge is effectively off, which is the
-    opposite of what you want: they are the most fragmented pages on the sheet.
+    ``typical`` is medianed over the runs that could BE a line -- height at least
+    ``min_line`` -- and falls back to the unfiltered median when none qualify. The
+    merge deliberately runs before the height filter, so ``runs`` still holds
+    every speckle the profile picked up, and medianing over all of them lets noise
+    decide what a typical line is. Measured here 2026-08-29 over the 55 pages
+    behind ``MIN_GAP_MERGE``: 458 of 1,579 collected runs (29%) are under
+    ``min_line_h``, and over the unfiltered list that drove ``typical`` under 10 on
+    6 of the 55 -- ``mon_e_lib.pdf`` page 41 reached ``typical`` 4 and so a ceiling
+    of 8, against a filtered median of 23. The ceiling then refuses every merge
+    worth making, so the pass switched itself off on the most fragmented pages on
+    the sheet. The fallback is safe rather than principled: on a page where nothing
+    clears the minimum the height filter discards everything anyway, so no crop
+    depends on the value.
 
-    Taking the median over runs already at or above ``min_line_h`` (falling back
-    to all runs when that set is empty) fixes it and changes none of the ten
-    fixtures. It is left alone because it is a deliberate divergence from
-    ``monocr-onnx`` and from the reference, which both take the median -- or in the
-    reference's case the whole merge -- over the unfiltered list, and because the
-    class docstring's parity argument makes that an owner decision rather than a
-    cleanup. Do not silently 'fix' it here alone.
+    This was recorded here as a KNOWN LIMITATION and left for parity, on the
+    grounds that ``monocr-onnx`` and the reference both medianed over the
+    unfiltered list. Read again 2026-08-29, that justification is gone: three of
+    the four ``monocr-onnx`` bindings filter, and the Rust binding is where the
+    filtered form was designed.
+
+    KNOWN LIMITATION, measured here 2026-08-29 and NOT fixed. The ``min_line``
+    guard is on the FRAGMENT clause only; ``gap_has_ink`` carries no such guard, so
+    a run of speckle whose every gap row holds ink still chains. Over the same 55
+    pages, bands made entirely of sub-``min_line_h`` runs that nonetheless clear
+    the height filter went from 28 to 48 -- every one of them admitted by the ink
+    clause, none by the fragment clause in either form. They land on the two most
+    speckled pages, ``mon_e_lib.pdf`` pages 11 and 41 (2 -> 13 and 0 -> 11), where
+    the collapsed ceiling used to refuse them for the wrong reason. Guarding the
+    ink clause the same way is NOT an obvious fix: an ink-bridged gap means the
+    profile never reached zero, which is the signal that the split was the
+    threshold's doing rather than a real break, and that is the case the clause
+    exists to rescue. Left as measured rather than guessed at. All four
+    ``monocr-onnx`` bindings share it.
     """
     if not runs:
         return []
 
-    heights = sorted(r1 - r0 for r0, r1 in runs)
+    heights = [h for h in (r1 - r0 for r0, r1 in runs) if h >= min_line]
+    if not heights:
+        heights = [r1 - r0 for r0, r1 in runs]
+    heights.sort()
     typical = max(1, heights[len(heights) // 2])
     ceiling = typical * 2
 
@@ -284,7 +303,15 @@ def merge_runs(runs, raw_hist, max_gap):
                 0 <= y < len(raw_hist) and raw_hist[y] > 0
                 for y in range(last1, r0)
             )
-            fragment = 2 * (r1 - r0) <= typical or 2 * (last1 - last0) <= typical
+            # A run at most half a typical line is a fragment of a line, not a
+            # line -- and a fragment attaches to a LINE, never to another
+            # fragment. Without `max(...) >= min_line` a run of speckle merges
+            # with itself: measured upstream on a 12-speck fixture, twelve 2-row
+            # specks fused into one 46-row band, which CLEARS the height filter
+            # and is handed to the recogniser as a line. Two pieces that are both
+            # too short to be a line do not become one by being adjacent.
+            ha, hb = last1 - last0, r1 - r0
+            fragment = 2 * min(ha, hb) <= typical and max(ha, hb) >= min_line
             if (
                 gap_size <= max_gap
                 and (gap_has_ink or fragment)
@@ -593,7 +620,7 @@ class LineSegmenter:
         # decapitated body behind as a whole line, which is the worst of the
         # three outcomes: no error, no missing band, and a line read without its
         # asats.
-        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE)
+        runs = merge_runs(runs, raw_hist, MIN_GAP_MERGE, self.min_line_h)
 
         # 7. Extract. Anything still shorter than min_line_h is a speckle, not a
         # line.

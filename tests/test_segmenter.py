@@ -456,6 +456,12 @@ def test_smooth_profile_is_a_true_window_tap_box(window):
 # pixels are 255, so a row carrying N ink pixels sums to N * 255. Fixtures below
 # are written in those units so their numbers can be checked against the
 # thresholds quoted in `MIN_GAP_MERGE` without a conversion step.
+#
+# The fourth argument is the minimum line height, 10 in every fixture here
+# because that is `LineSegmenter`'s default and what the `segment`-level cases
+# run with. It does two jobs: `typical` is medianed over runs at least that tall,
+# and the fragment clause refuses a pair in which neither run reaches it. Both
+# have their own tests below.
 INK = 255
 
 
@@ -480,7 +486,7 @@ def test_a_sub_threshold_dip_does_not_end_a_line():
     hist = np.zeros(400, dtype=np.float32)
     hist[295:341] = 40 * INK
     hist[303:309] = 5 * INK
-    assert merge_runs([(295, 303), (309, 341)], hist, MIN_GAP_MERGE) == [(295, 341)], (
+    assert merge_runs([(295, 303), (309, 341)], hist, MIN_GAP_MERGE, 10) == [(295, 341)], (
         "a 6-row dip holding 5 ink pixels a row split one line in two"
     )
 
@@ -496,11 +502,16 @@ def test_a_zero_ink_gap_still_merges_a_fragment_into_its_line():
     the shape occurs: of the 691 candidate merges over the 55 pages behind
     `MIN_GAP_MERGE`, 21 had a gap that was not ink-holding and passed on this
     clause alone.
+
+    This is also the positive side of the clause's line guard: the pair merges
+    because `max(19, 42)` reaches `min_line`. It cannot catch the guard being
+    DELETED — `test_a_fragment_never_attaches_to_another_fragment` does that — only
+    the guard being over-tightened to `min(...)`.
     """
     hist = np.zeros(500, dtype=np.float32)
     hist[341:360] = 6 * INK
     hist[362:404] = 40 * INK
-    assert merge_runs([(341, 360), (362, 404)], hist, MIN_GAP_MERGE) == [(341, 404)], (
+    assert merge_runs([(341, 360), (362, 404)], hist, MIN_GAP_MERGE, 10) == [(341, 404)], (
         "a 19-row fragment two EMPTY rows from a 42-row line stayed separate"
     )
 
@@ -515,7 +526,7 @@ def test_two_real_lines_two_rows_apart_stay_separate():
     hist = np.zeros(200, dtype=np.float32)
     hist[20:60] = 40 * INK
     hist[62:102] = 40 * INK
-    assert merge_runs([(20, 60), (62, 102)], hist, MIN_GAP_MERGE) == [
+    assert merge_runs([(20, 60), (62, 102)], hist, MIN_GAP_MERGE, 10) == [
         (20, 60),
         (62, 102),
     ], "two 40-row lines 2 rows apart were fused"
@@ -544,7 +555,7 @@ def test_a_wide_gap_is_a_line_boundary_however_much_ink_it_holds():
     # Literal, not `== runs`. Comparing against the argument itself passes for an
     # implementation that merges IN PLACE and returns what it was given, which is
     # exactly the implementation this test exists to reject.
-    assert merge_runs(runs, hist, MIN_GAP_MERGE) == [
+    assert merge_runs(runs, hist, MIN_GAP_MERGE, 10) == [
         (20, 44),
         (60, 84),
         (140, 180),
@@ -575,7 +586,7 @@ def test_a_dip_between_equal_halves_merges_on_ink_alone():
     hist[150:210] = 40 * INK
     hist[260:320] = 40 * INK
     runs = [(20, 60), (62, 102), (150, 210), (260, 320)]
-    assert merge_runs(runs, hist, MIN_GAP_MERGE) == [
+    assert merge_runs(runs, hist, MIN_GAP_MERGE, 10) == [
         (20, 102),
         (150, 210),
         (260, 320),
@@ -599,7 +610,9 @@ def test_no_merge_grows_a_band_past_twice_the_page_typical_height():
         hist[r0:r1] = 40 * INK
     for r0, r1 in ((20, 22), (62, 64), (104, 106)):
         hist[r0:r1] = 5 * INK
-    merged = merge_runs([(0, 20), (22, 62), (64, 104), (106, 146)], hist, MIN_GAP_MERGE)
+    merged = merge_runs(
+        [(0, 20), (22, 62), (64, 104), (106, 146)], hist, MIN_GAP_MERGE, 10
+    )
     assert merged == [(0, 62), (64, 104), (106, 146)], (
         f"ink-bridged lines cascaded into {merged} — the ceiling is not bounding "
         "the accumulated run"
@@ -627,7 +640,7 @@ def test_a_fragment_is_judged_against_the_page_median_not_its_neighbour():
     for r0, r1 in runs:
         hist[r0:r1] = 40 * INK
     # Literal for the same reason as the wide-gap case above.
-    assert merge_runs(runs, hist, MIN_GAP_MERGE) == [
+    assert merge_runs(runs, hist, MIN_GAP_MERGE, 10) == [
         (20, 68),
         (70, 94),
         (150, 190),
@@ -636,6 +649,149 @@ def test_a_fragment_is_judged_against_the_page_median_not_its_neighbour():
     ], (
         "a 24-row run merged into its 48-row neighbour on a page whose median "
         "line is 40 rows, so the height test is relative to the neighbour"
+    )
+
+
+def test_a_gap_past_the_end_of_the_profile_is_not_inked():
+    """A row that does not exist carries no ink, and must not buy a merge.
+
+    Runs from this module's own collector can never point past the profile, so
+    this is about a caller passing its own runs -- which the helper's signature
+    invites, and which every port's tests do. The four `monocr-onnx` bindings all
+    answer NOT inked, and the answer has to agree across them or a shared fixture
+    means nothing.
+
+    It is worth a test because the plausible implementation gets it wrong the other
+    way: `np.all(raw_hist[last1:r0] > 0)` reads a truncated slice, and for a gap
+    entirely past the end that is an EMPTY slice, which `np.all` calls True. The
+    sibling Python binding shipped exactly that and merged across rows that do not
+    exist. This module indexes with an explicit bound instead.
+
+    Both runs are 55 rows on a page whose median is 60, so `2 * 55 > 60` and the
+    fragment clause is false; the merged 112 rows sit inside the 120-row ceiling
+    and the gap is 2 rows, inside the bound. Only the ink test decides, which is
+    what makes the pair of assertions below a clean A/B on profile length.
+    """
+    runs = [(45, 100), (102, 157), (200, 260), (300, 360)]
+    inked_throughout = np.full(400, 40 * INK, dtype=np.float32)
+    assert merge_runs(runs, inked_throughout, MIN_GAP_MERGE, 10) == [
+        (45, 157),
+        (200, 260),
+        (300, 360),
+    ], "the control failed: an in-range inked gap did not merge"
+
+    stops_before_the_gap = np.full(100, 40 * INK, dtype=np.float32)
+    assert merge_runs(runs, stops_before_the_gap, MIN_GAP_MERGE, 10) == [
+        (45, 100),
+        (102, 157),
+        (200, 260),
+        (300, 360),
+    ], "rows 100 and 101 do not exist in a 100-row profile, and merged anyway"
+
+
+def test_speckle_does_not_set_the_page_typical_line_height():
+    """Which runs `typical` is medianed over.
+
+    The merge runs BEFORE the height filter -- that ordering is the point of
+    `test_the_merge_runs_before_the_minimum_height_filter` -- so `runs` still holds
+    every speck the profile picked up. Median over all of them and noise decides
+    what a typical line is, the ceiling collapses with it, and the pass switches
+    itself off on exactly the pages that need it most.
+
+    Measured here 2026-08-29 over the 55 pages behind `MIN_GAP_MERGE`: 458 of 1,579
+    collected runs (29%) are under `min_line_h`, and the unfiltered median drove
+    `typical` under 10 on 6 of them. `mon_e_lib.pdf` page 41 reached `typical` 4,
+    so a ceiling of 8, against a filtered median of 23.
+
+    The fixture: twelve 2-row specks, then one line split into 24-row halves by a
+    2-row inked dip, then three ordinary 50-row lines. Unfiltered the median is 2
+    and the ceiling 4, so the 50-row merged band is refused; filtered to runs that
+    could BE a line the median is 50 and the ceiling 100.
+
+    The halves are 24 rows and not 50. A 50 + 50 pair is two whole lines by its own
+    page's standard and the ceiling would refuse it for the right reason -- the
+    trap a sibling port fell into.
+    """
+    hist = np.zeros(700, dtype=np.float32)
+    runs = []
+    for i in range(12):
+        y = i * 4
+        hist[y:y + 2] = 20 * INK
+        runs.append((y, y + 2))
+    hist[100:124] = 40 * INK
+    hist[124:126] = 5 * INK
+    hist[126:150] = 40 * INK
+    runs += [(100, 124), (126, 150)]
+    for y in (200, 260, 320):
+        hist[y:y + 50] = 40 * INK
+        runs.append((y, y + 50))
+
+    merged = merge_runs(runs, hist, MIN_GAP_MERGE, 10)
+    assert (100, 150) in merged, (
+        f"the split halves stayed apart in {merged} -- speckle set the ceiling"
+    )
+    # Asserting only that the real pair merged is not enough: the mutation that
+    # drops the fragment clause's line guard survives that on its own, because a
+    # median of 50 also makes every speck pair a fragment. So assert the negative
+    # too, which is what the guard is for.
+    chained = [(a, b) for a, b in merged if a < 100 and (b - a) >= 10]
+    assert chained == [], (
+        f"speckle fused into {chained}, tall enough to clear the height filter "
+        "and be handed to the recogniser as a line"
+    )
+
+
+def test_a_fragment_never_attaches_to_another_fragment():
+    """The fragment clause's line guard, isolated from the median.
+
+    `2 * min(ha, hb) <= typical` alone lets speckle merge with speckle: two pieces
+    that are both too short to be a line become one band, that band clears
+    `min_line_h`, and the recogniser is asked to read noise. Measured upstream in
+    Rust, twelve 2-row specks chained into a single 46-row band.
+
+    The geometry is chosen so this case cannot be passed by accident. Five 3-row
+    specks among eight 40-row lines: the median is 40 whether it is filtered or
+    not, so `typical`, the ceiling and every other clause are held fixed and
+    `max(ha, hb) >= min_line` is the only thing refusing the chain. That matters
+    because reverting the filtered median and the line guard TOGETHER masks both --
+    an unfiltered median collapses `typical` far enough that an unguarded fragment
+    clause reaches the same answer -- and
+    `test_speckle_does_not_set_the_page_typical_line_height` cannot see the
+    combination on its own.
+
+    Every gap here is genuinely empty, so `gap_has_ink` is false throughout: the
+    ink clause has no say and the refusal has to come from the height test.
+    """
+    hist = np.zeros(700, dtype=np.float32)
+    specks = [(10, 13), (15, 18), (20, 23), (25, 28), (30, 33)]
+    lines = [(y, y + 40) for y in (100, 170, 240, 310, 380, 450, 520, 590)]
+    for r0, r1 in specks:
+        hist[r0:r1] = 20 * INK
+    for r0, r1 in lines:
+        hist[r0:r1] = 40 * INK
+
+    merged = merge_runs(specks + lines, hist, MIN_GAP_MERGE, 10)
+    # Literal, not `== specks + lines`: comparing against the argument passes for
+    # an implementation that merges in place and returns what it was given.
+    assert merged == [
+        (10, 13),
+        (15, 18),
+        (20, 23),
+        (25, 28),
+        (30, 33),
+        (100, 140),
+        (170, 210),
+        (240, 280),
+        (310, 350),
+        (380, 420),
+        (450, 490),
+        (520, 560),
+        (590, 630),
+    ], f"the speckle chain fused: {merged}"
+    reaching_the_filter = [(a, b) for a, b in merged if a < 100 and (b - a) >= 10]
+    assert reaching_the_filter == [], (
+        f"{reaching_the_filter} clears min_line_h and is made only of specks -- "
+        "a fragment attached to another fragment"
     )
 
 
