@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Two correctness fixes to the inference path. Neither is released yet, and the
+Three correctness fixes to the inference path. None is released yet, and the
 newest released section below describes a segmenter with no suppression pass and an
 inference path with no polarity probe — which is why this section exists rather
 than waiting for a version bump.
@@ -47,6 +47,38 @@ no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long; and
 `RULE_MAX_INK_SHARE = 0.80`, because `RULE_SPAN` is a fraction of the page, so on a
 short page a tall text block exceeds it vertically and every glyph column reads as a
 rule.
+
+**The row scan no longer runs past the bottom of the page.**
+`np.convolve(..., mode="same")` never returns fewer elements than its kernel, so on
+a page shorter than `smooth_kernel` the smoothed profile described rows that do not
+exist. A 3-row page produced a run of length 4: it satisfied a `min_line_h` of 4
+that no 3-row page can, and that inflated height was what `_extract_line` took its
+padding from. `monocr-onnx` bounds the same loop with `range(h_img)`; this package
+scanned the profile instead.
+
+Reachable without a synthetic fixture, because `smooth_kernel` is a constructor
+argument — at the mon_OCR reference's 15 it caught any crop under 15 rows tall.
+Default construction on a page taller than 5 rows was never affected.
+
+### Lineage, stated where it is read
+
+`LineSegmenter`'s docstring claimed step with `monocr_onnx` and said nothing about
+the mon_OCR reference. The first half checks out: every constant is equal, adaptive
+block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
+costly half. This segmenter thresholds at 0.02 of the profile **max** where the
+reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
+any number, not a different tuning — detects runs on the smoothed profile where the
+reference detects on the raw one, and has no pre-blur, no smear, no gap merge, no
+outlier rejection and no tiling.
+
+The docstring now says all of that, plus the two ways it differs from
+`monocr_onnx` itself (PIL-only input, and `smooth_kernel` where the port says
+`smooth_window`), and the precondition it relies on: `MonOCR._prepare_image`, not
+this class, is what guarantees the dark-on-light input its `THRESH_BINARY_INV`
+needs.
+
+No constant was changed. Which set is right is a measurement question and neither
+repository has anything that scores a segmenter.
 
 ### Not changed
 

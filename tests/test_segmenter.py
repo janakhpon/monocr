@@ -92,6 +92,50 @@ def test_a_speckle_shorter_than_the_minimum_line_height_is_ignored():
     )
 
 
+def test_a_page_cannot_hold_a_line_taller_than_itself():
+    """The row scan must be bounded by real rows, not by the smoothed profile.
+
+    `np.convolve(..., mode="same")` never returns fewer elements than its
+    kernel, so on a page shorter than `smooth_kernel` the profile describes rows
+    the page does not have. Unbounded, this 3-row page produced a run of length
+    4: it passed a `min_line_h` of 4 that no 3-row page can satisfy, and handed
+    `_extract_line` an inflated height to take its padding from. The monocr_onnx
+    port bounds the same loop with `range(h_img)`; this one did not.
+
+    Not a synthetic-only case. `smooth_kernel` is a constructor argument, so at
+    the mon_OCR reference's 15 the bug reaches any crop under 15 rows tall.
+    """
+    strip = np.full((3, 40), 255, dtype=np.uint8)
+    strip[0, :] = 0
+    img = Image.fromarray(strip)
+
+    assert len(LineSegmenter(min_line_h=1).segment(img)) == 1, (
+        "the fixture has to be segmentable at all, or the next assert is vacuous"
+    )
+    assert LineSegmenter(min_line_h=4).segment(img) == [], (
+        "a 3-row page returned a line against a 4-row minimum, so the scan ran "
+        "past the bottom of the page"
+    )
+
+
+def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
+    """The same bound, swept, because one fixture pins one arithmetic accident.
+
+    Every case below asks a page of `h` rows for a minimum of `h + 1`, which no
+    page of that height can satisfy whatever the smoothing window is.
+    """
+    for h in range(1, 8):
+        strip = np.full((h, 40), 255, dtype=np.uint8)
+        strip[0, :] = 0
+        img = Image.fromarray(strip)
+        for kernel in (3, 5, 9, 15):
+            lines = LineSegmenter(min_line_h=h + 1, smooth_kernel=kernel).segment(img)
+            assert lines == [], (
+                f"a {h}-row page with smooth_kernel={kernel} returned "
+                f"{len(lines)} lines against a minimum of {h + 1}"
+            )
+
+
 def test_a_single_line_crop_at_the_model_height_is_not_shredded():
     """160 pixels tall is one line to this model, and it must stay one line.
 

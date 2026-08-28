@@ -96,6 +96,19 @@ MUTATIONS = [
         "if (y - start_y) >= 1:",
     ),
     (
+        "the row scan is unbounded again, so it runs past a short page",
+        "src/monocr/segmenter.py",
+        "        is_text_row = hist[:h_img] > threshold",
+        "        is_text_row = hist > threshold",
+    ),
+    # `hist[: h_img + 1]` was tried here as a second, off-by-one mutation and is
+    # not listed because it is an equivalent mutant, not a survivor: index h_img
+    # can only ever terminate a run, and terminating there gives r_end == h_img,
+    # which is what the trailing branch already does. A run starting at h_img has
+    # length 0 and `_extract_line` drops it for having no ink columns. Checked
+    # exhaustively on 2026-08-28 over 14,280 cases (h 1-8, kernel 3/5/9/15,
+    # min_line_h 0-9): zero differing outcomes. Do not re-add it.
+    (
         "opencv-python replaces the headless build",
         "pyproject.toml",
         '"opencv-python-headless>=4.0.0",',

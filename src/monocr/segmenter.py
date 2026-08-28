@@ -41,6 +41,12 @@ def suppress_page_rules(binary):
 
     Returns `binary` unchanged when the page carries no rules, and also when
     suppression would remove more ink than RULE_MAX_INK_SHARE.
+
+    Both kernels are floored at 15 px, so below 30 px of page in a direction the
+    test is an absolute 15-px run rather than RULE_SPAN of the page. Without the
+    floor a 20-px-wide page would call a 10-px stroke a rule; with it, a page
+    that small finds no rules at all, because opening by a kernel wider than the
+    page clears the mask.
     """
     h, w = binary.shape
     horizontal = cv2.morphologyEx(
@@ -65,10 +71,40 @@ class LineSegmenter:
     Robust line segmenter using Horizontal Projection Profiles with Smoothing.
     Handles noisy documents and touching lines by finding valleys in the projection.
 
-    Kept deliberately in step with ``monocr_onnx.segmenter.LineSegmenter``: the
-    same thresholds, the same minimum line height, and the same relative
-    padding, so the two packages cut a page the same way. Changing a number here
+    Lineage, checked against both siblings on 2026-08-28 rather than assumed.
+
+    This is a port of ``monocr_onnx.segmenter.LineSegmenter`` and that claim
+    holds: every constant is equal -- adaptive block 25 and C 10,
+    threshold_ratio 0.02, min_line_h 10, smoothing 5, pads of 0.20 and 0.15 of
+    the core line height -- and the printed-rule block above is the same code
+    with the same RULE_SPAN and RULE_MAX_INK_SHARE. Changing a number here
     without changing it there is what makes two bindings disagree on one input.
+
+    Two differences that are not cuts. This class takes PIL only, where the port
+    also accepts a bare ndarray; and its smoothing argument is ``smooth_kernel``
+    where the port says ``smooth_window``, so a keyword call does not carry
+    across. The port also ships ``tile_line``/``cut_column`` for a line too wide
+    for the model window. This module has neither, so an over-wide line is
+    squeezed to fit instead of being split -- see ``ocr._predict_single_line``.
+
+    It is NOT a port of the mon_OCR reference, and the distance is wider than
+    tuning. The gap threshold here is a fraction of the profile MAX; the
+    reference takes a fraction of the MEAN of its non-zero rows. Max and mean
+    part company as lines are added to a page, so no choice of ratio reconciles
+    them: 0.02 of the max and 0.12 of the mean are different algorithms at any
+    number. The reference also detects run boundaries on the raw profile while
+    calibrating the threshold on the smoothed one, and runs four stages absent
+    here entirely -- a pre-blur, a morphological smear, a bounded gap merge, and
+    outlier rejection. Expect different line counts on the same page.
+
+    Which set is right is unmeasured: nothing in either repository scores a
+    segmenter, so do not close the question by editing a number here.
+
+    Polarity is a precondition, not a stage. This class treats dark pixels as
+    ink and never probes; ``MonOCR._prepare_image`` runs ``normalize_polarity``
+    before handing a page over. Called directly it must be given
+    dark-text-on-light, or it segments the background. The reference probes
+    inside ``segment`` itself and so carries no such precondition.
     """
     def __init__(self, min_line_h: int = 10, smooth_kernel: int = 5, threshold_ratio: float = 0.02):
         self.min_line_h = min_line_h
@@ -82,10 +118,12 @@ class LineSegmenter:
         """
         # 1. Convert to Grayscale & Numpy
         img_np = np.array(image.convert("L"))
-        h_img, w_img = img_np.shape
+        h_img = img_np.shape[0]
 
         # 2. Binarize (Adaptive Thresholding)
-        # Invert so text is white, background black
+        # THRESH_BINARY_INV makes ink white and paper black. That picks out the
+        # text only if the page arrives dark-on-light, which this class requires
+        # of its caller rather than checking -- see the class docstring.
         binary = cv2.adaptiveThreshold(
             img_np, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY_INV, 25, 10
@@ -111,7 +149,16 @@ class LineSegmenter:
         max_val = np.max(hist)
         threshold = max_val * self.threshold_ratio
 
-        is_text_row = hist > threshold
+        # Bound the scan to real rows. `np.convolve(..., mode="same")` returns
+        # max(len(hist), smooth_kernel) elements, so on a page shorter than the
+        # smoothing window `hist` describes rows that do not exist. The
+        # monocr_onnx port bounds the same loop with `range(h_img)`; without it a
+        # 3-row page produced a run of length 4, which both passed a min_line_h
+        # of 4 that no 3-row page can satisfy and inflated the h_raw that
+        # `_extract_line` derives its padding from. Reachable in normal use,
+        # because `smooth_kernel` is a constructor argument: at the reference's
+        # 15 it catches any crop under 15 rows tall.
+        is_text_row = hist[:h_img] > threshold
 
         lines: List[Tuple[Image.Image, Tuple[int, int, int, int]]] = []
         start_y = None
