@@ -157,6 +157,14 @@ row between the diacritic zone and the consonant bodies dips below the gap
 threshold without reaching zero. Raw detection cuts there: a strip of glyph tops
 that decodes to Mon digits, and a decapitated body that decodes without its asats.
 
+**What is ported from where.** The reference's own merge has two clauses — gap at
+most `_MIN_GAP_MERGE` (10) rows and the raw minimum in the gap above zero — with no
+page median and no ceiling, and it argues against crossing an empty gap at all ("if
+in doubt, we keep lines SEPARATE"). What landed here is `monocr-onnx`'s three-clause
+superset from `9135cab`; from the reference come the constant 10 and the ordering
+(its merge is step 8, its height filter step 9). The fragment clause and the ceiling
+are the Rust binding's.
+
 `merge_runs` fuses a run into the previous one when the gap is at most
 `MIN_GAP_MERGE` (10) rows, **and** either every row in the gap carries ink or one of
 the two runs is at most half a typical line, **and** the result is at most twice a
@@ -178,15 +186,22 @@ pipeline, same corpus, one function swapped:
 Band count *rises* while run count falls, because a merged strip-plus-body clears
 `min_line_h` where the strip alone did not. 34 pages gained characters and **none
 lost any**, so the garbage figure is not bought by discarding text. Garbage is a
-band over half Mon digits and longer than 3 characters — the length clause keeps
+band over half Mon digits and longer than 3 characters — the definition `mon_OCR`
+`docs/AUDIT-2026-08-B.md` gives in **F-70**, not F-69. The length clause keeps
 correctly-read page numbers out of the count.
 
-**These numbers are smaller than the sibling figures** in `mon_OCR`
-`docs/AUDIT-2026-08-B.md` F-69, which measured 26.6% garbage falling to 0.7%. The
-corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
+**These numbers are smaller than the sibling figures** usually quoted beside this
+change — 1.2% garbage for shipping nothing, 26.6% for raw detection alone, 0.7% for
+the complete pair. That pair belongs to `se-brain rules/standards/testing.md` §24,
+which draws it from F-69 **and** F-70 together over 24 scanned book pages plus three
+photographs, measured through a sibling CLI. **It is not in F-69**, which is status
+"reported, not fixed" and carries no after-merge measurement at all; an earlier draft
+of this entry and of the source comment cited it there, which was wrong.
+
+The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
 wide; the 145-page image scan F-69 measured is not in this workspace. The mechanism
-and the direction are the same on both metrics. Do not carry F-69's table into this
-package's source.
+and the direction are the same on both metrics. Do not carry the sibling figures into
+this package's source.
 
 The concrete case, on page 1 of `party_mission.pdf` at 300 DPI: the smoothed max was
 84,100, so the threshold was `0.02 * 84,100 = 1,682`, or 6.6 ink pixels a row. Rows
@@ -230,6 +245,21 @@ run, which is how they were found.
 
 ### Recorded, not fixed
 
+**The merge's `typical` is a median over runs that `min_line_h` will discard.** It is
+computed before the height filter — which is the whole point of the ordering — so
+speckles count toward it. Measured over the 55 pages above: 534 of 1,779 runs (30%)
+are under `min_line_h`, and on 8 of the 55 that drives `typical` below 10.
+`mon_e_lib.pdf` page 41 reaches `typical` 2, so a ceiling of 4, against a median of
+35 over its runs that survive the filter — the merge is effectively off on exactly
+the most fragmented pages.
+
+Taking the median over runs already at or above `min_line_h`, falling back to all
+runs when none qualify, fixes it and changes none of the ten new fixtures. Left alone
+because `monocr-onnx` and the reference both compute over the unfiltered list, so
+changing it here alone is a parity divergence and an owner decision — the same
+argument as the `_extract_line` pad below. Found by an independent review of this
+change, not by a test.
+
 `_extract_line` mixes an inclusive last-ink-column index with PIL's exclusive
 `crop`, so every crop it returns is one pixel short on the right: the left pad is
 `pad_x` columns and the right pad `pad_x - 1`, and the reported width understates
@@ -255,7 +285,7 @@ block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
 costly half. This segmenter thresholds at 0.02 of the profile **max** where the
 reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
 any number, not a different tuning — and has no pre-blur, no smear, no outlier
-rejection and no tiling. It also detected runs on the smoothed profile where the
+rejection and no tiling (the reference has all four). It also detected runs on the smoothed profile where the
 reference detects on the raw one, and had no gap merge; both of those are now
 closed, see above.
 

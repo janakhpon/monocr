@@ -144,22 +144,43 @@ def smooth_profile(raw_hist, window):
 #
 # 209 run boundaries closed; band count RISES because a merged strip-plus-body
 # clears `min_line_h` where the strip alone did not. Garbage is a band over half
-# Mon digits and longer than 3 characters, the metric `mon_OCR`
-# `docs/AUDIT-2026-08-B.md` F-69 defines -- the length clause keeps correctly-read
-# page numbers out of the count. 34 pages gained characters and NONE lost any, so
-# the garbage number is not bought by dropping text.
+# Mon digits and longer than 3 characters, which is the metric `mon_OCR`
+# `docs/AUDIT-2026-08-B.md` defines in F-70, not F-69 -- the length clause keeps
+# correctly-read page numbers out of the count. 34 pages gained characters and
+# NONE lost any, so the garbage number is not bought by dropping text.
 #
-# These are this module's numbers and they are SMALLER than the sibling figures in
-# F-69 (26.6% garbage down to 0.7%). Do not substitute those. The corpus here is
-# mostly digitally typeset PDF, whose inter-line gaps are clean and wide; the
-# 145-page image scan F-69 measured is not in this workspace. The mechanism is the
-# same and the direction is the same on both metrics.
+# These are this module's numbers and they are SMALLER than the sibling figures
+# they are often quoted beside -- 1.2% garbage for shipping nothing, 26.6% for raw
+# detection alone, 0.7% for the complete pair. Do not substitute those, and do not
+# cite them to F-69: that pair is in `se-brain rules/standards/testing.md` §24,
+# which draws it from F-69 AND F-70 together over 24 scanned book pages plus three
+# photographs, measured through a sibling CLI. F-69 itself is status "reported, not
+# fixed" and carries no after-merge measurement at all. Checked 2026-08-28.
 #
-# A 1-row gap holding ink is not a line boundary at any resolution. This is the
-# reference's rule (`mon_OCR` `_MIN_GAP_MERGE`, `segmenter.py` step 8), ported
-# with its value, and it is the half of the dual histogram the ports left behind:
-# raw detection needs a merge to be safe, and every port took the first without
-# the second. `monocr-onnx` closed it in Rust at `9135cab`.
+# The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean
+# and wide; the 145-page image scan F-69 measured is not in this workspace. The
+# mechanism is the same and the direction is the same on both metrics.
+#
+# A 1-row gap holding ink is not a line boundary at any resolution. That much is
+# the reference's rule, but be precise about WHAT is ported from where, because an
+# earlier version of this comment credited all of it to the reference and that is
+# wrong. Read 2026-08-28 in `mon_OCR/src/monocr/segmenter.py` step 8, the
+# reference's merge has exactly TWO clauses -- gap <= `_MIN_GAP_MERGE` AND the raw
+# minimum in the gap above zero -- with no fragment clause, no page median and no
+# ceiling. It argues explicitly against crossing an empty gap: "If in doubt, we
+# keep lines SEPARATE -- text is NEVER lost this way."
+#
+# So what this module runs is `monocr-onnx`'s three-clause SUPERSET, added in Rust
+# at `9135cab`. From the reference come the constant 10 and the ORDER -- its merge
+# is step 8 and its minimum-height filter step 9. The fragment clause and the
+# ceiling are the Rust binding's, and the fragment clause is a deliberate
+# departure from the reference's own advice, justified by the cascade measurement
+# in `merge_runs` rather than by the reference.
+#
+# Raw detection needs a merge to be safe and the first ports took detection
+# without it. That is now closing: read 2026-08-28, `monocr-onnx`'s Rust, Python,
+# JS and Go segmenters all reference a merge. Those trees were being edited at the
+# time, so treat this as dated rather than current.
 #
 # The value 10 is carried across rather than re-derived, which the reference's own
 # header forbids doing with a tuning constant. It survives here on the evidence
@@ -224,6 +245,24 @@ def merge_runs(runs, raw_hist, max_gap):
     which is the tightest real line spacing on these pages, so it fuses lines
     that are genuinely separate -- the case
     ``test_two_real_lines_two_rows_apart_stay_separate`` pins.
+
+    KNOWN LIMITATION, measured here 2026-08-28 and NOT fixed. ``typical`` is the
+    median over EVERY collected run, including the speckles that ``min_line_h``
+    discards two steps later, so a speckle-heavy page can drive it below a real
+    line height and the ceiling with it. Over the 55 pages behind
+    ``MIN_GAP_MERGE``, 534 of 1,779 runs (30%) are under ``min_line_h``, and on 8
+    of the 55 that pushes ``typical`` under 10 -- ``mon_e_lib.pdf`` page 41 reaches
+    ``typical`` 2 and so a ceiling of 4, against a median of 35 over its runs that
+    survive the filter. On those pages the merge is effectively off, which is the
+    opposite of what you want: they are the most fragmented pages on the sheet.
+
+    Taking the median over runs already at or above ``min_line_h`` (falling back
+    to all runs when that set is empty) fixes it and changes none of the ten
+    fixtures. It is left alone because it is a deliberate divergence from
+    ``monocr-onnx`` and from the reference, which both take the median -- or in the
+    reference's case the whole merge -- over the unfiltered list, and because the
+    class docstring's parity argument makes that an owner decision rather than a
+    cleanup. Do not silently 'fix' it here alone.
     """
     if not runs:
         return []
@@ -298,10 +337,13 @@ class LineSegmenter:
     them: 0.02 of the max and 0.12 of the mean are different algorithms at any
     number. The reference detects run boundaries on the raw profile while
     calibrating the threshold on the smoothed one, which as of 2026-08-28 this
-    module does too, and as of 2026-08-28 the reference's bounded gap merge is
-    here as well -- see ``MIN_GAP_MERGE``, ported with its value of 10. Three
-    reference stages are still absent entirely: a pre-blur, a morphological
-    smear, and outlier rejection. Expect different line counts on the same page.
+    module does too, and as of 2026-08-28 a bounded gap merge is here as well --
+    see ``MIN_GAP_MERGE``, which takes the reference's constant 10 and its
+    ordering but the Rust binding's three clauses. Three of the reference's
+    profile stages are still absent entirely: a pre-blur, a morphological smear,
+    and outlier rejection. Its tiling is absent too and is counted separately
+    below, with the other call-shape divergences. Expect different line counts on
+    the same page.
 
     The crop geometry parts company the same way, and this list omitted it until
     2026-08-28. ``_extract_line`` here pads horizontally by

@@ -468,9 +468,14 @@ def test_a_sub_threshold_dip_does_not_end_a_line():
     over zero — and split one line into an 8-row strip of glyph tops and a 32-row
     decapitated body.
 
-    Also the tightest guard on the ceiling's value: `typical` is 32 here and the
-    merged band is 46 rows, so a ceiling of one typical line instead of two
-    refuses this merge.
+    This also kills a ceiling of one typical line instead of two: `typical` is 32
+    here and the merged band is 46 rows. It is the LOOSEST of the three tests that
+    do, though — it only needs the ceiling to be at least 46/32 = 1.44x. The
+    tightest is `test_no_merge_grows_a_band_past_twice_the_page_typical_height` at
+    62/40 = 1.55x, then the zero-gap fragment at 63/42 = 1.50x. So none of the ten
+    pins the value at exactly 2x; a multiplier anywhere from 1.55x up passes the
+    whole suite, and 2x rests on the upstream re-measurement cited in
+    `MIN_GAP_MERGE`, not on anything here.
     """
     hist = np.zeros(400, dtype=np.float32)
     hist[295:341] = 40 * INK
@@ -523,10 +528,11 @@ def test_a_wide_gap_is_a_line_boundary_however_much_ink_it_holds():
     inter-line spacing; upstream that unmerged case collapsed 3 PDF lines into 1.
 
     The run heights are chosen so the CEILING does not also refuse, which is what
-    isolates the bound. An earlier version of this fixture used two 40-row runs
-    16 rows apart: the merged band would have been 95 rows against a ceiling of
-    80, so replacing `gap_size <= max_gap` with `True` still returned two bands
-    and the mutation SURVIVED. Here the pair is 24 rows each on a page whose
+    isolates the bound. An earlier version of this fixture copied `monocr-onnx`'s
+    numbers -- two 40-row runs 15 rows apart, so a merged band of 95 rows against
+    a ceiling of 80. The ceiling refused it on its own, so replacing
+    `gap_size <= max_gap` with `True` still returned two bands and the mutation
+    SURVIVED. Here the pair is 24 rows each on a page whose
     typical line is 40, so the merged band would be 64 rows — inside the ceiling,
     and only the gap bound stands between it and a fuse.
     """
@@ -535,9 +541,16 @@ def test_a_wide_gap_is_a_line_boundary_however_much_ink_it_holds():
     for r0, r1 in runs:
         hist[r0:r1] = 40 * INK
     hist[44:60] = 5 * INK
-    assert merge_runs(runs, hist, MIN_GAP_MERGE) == runs, (
-        "a 16-row gap merged, so the gap bound is not being applied"
-    )
+    # Literal, not `== runs`. Comparing against the argument itself passes for an
+    # implementation that merges IN PLACE and returns what it was given, which is
+    # exactly the implementation this test exists to reject.
+    assert merge_runs(runs, hist, MIN_GAP_MERGE) == [
+        (20, 44),
+        (60, 84),
+        (140, 180),
+        (220, 260),
+        (300, 340),
+    ], "a 16-row gap merged, so the gap bound is not being applied"
 
 
 def test_a_dip_between_equal_halves_merges_on_ink_alone():
@@ -600,9 +613,12 @@ def test_a_fragment_is_judged_against_the_page_median_not_its_neighbour():
     A 48-row run and a 24-row run two EMPTY rows apart, on a page whose typical
     line is 40. Against the neighbour the 24-row run is exactly half of 48 and
     merges; against the page median it is over half a typical line, so it is a
-    short line — a page number or a heading tail — and stays its own band. F-69
-    counted 285 such bands in one book and found 85% of them read correctly, so
-    swallowing them is not a harmless over-merge.
+    short line — a page number or a heading tail — and stays its own band. That
+    short lines are real content is F-69's point 2: of 990 bands under 0.6x the
+    page median, 285 were 3 characters or fewer and 85% of THOSE were pure digits,
+    read correctly as page numbers. So the class exists; note that F-69 measures
+    the ≤3-character slice of it, which this package's own garbage metric already
+    excludes.
 
     The ceiling cannot catch this one: 48 + 2 + 24 is 74, inside a ceiling of 80.
     """
@@ -610,7 +626,14 @@ def test_a_fragment_is_judged_against_the_page_median_not_its_neighbour():
     runs = [(20, 68), (70, 94), (150, 190), (230, 270), (300, 338)]
     for r0, r1 in runs:
         hist[r0:r1] = 40 * INK
-    assert merge_runs(runs, hist, MIN_GAP_MERGE) == runs, (
+    # Literal for the same reason as the wide-gap case above.
+    assert merge_runs(runs, hist, MIN_GAP_MERGE) == [
+        (20, 68),
+        (70, 94),
+        (150, 190),
+        (230, 270),
+        (300, 338),
+    ], (
         "a 24-row run merged into its 48-row neighbour on a page whose median "
         "line is 40 rows, so the height test is relative to the neighbour"
     )
@@ -621,15 +644,17 @@ def test_a_diacritic_strip_is_returned_joined_to_its_line():
 
     In `monocr-onnx` a mutation deleting the `merge_runs` CALL survived every
     helper test, because they all call the helper directly and the call site was
-    unguarded. That is the gap `se-brain rules/standards/testing.md` §23 names: a
-    tested helper does not make its call site safe.
+    unguarded. That is the rule `se-brain rules/standards/testing.md` §20 gives as
+    a WARNING, "Mutate the call site, not only the helper" — §23 is a different
+    section, about a test that re-types the code.
 
     Geometry is `monocr-onnx`'s fixture shape rather than a measurement of this
-    package: a strip of upper marks, two empty rows, then a body about twice as
-    tall. Detected here as runs `(60, 81)` and `(82, 127)` — adaptive
-    thresholding lights one row past each drawn edge, so the runs are 21 and 45
-    rows against 20 and 44 drawn. `typical` is 45 and the strip is a fragment by
-    `2 * 21 <= 45`. One line, and it must come back as one band.
+    package: a strip of upper marks, a blank gap, then a body about twice as tall.
+    Detected here as runs `(60, 81)` and `(82, 127)` — `ImageDraw.rectangle` is
+    INCLUSIVE of both endpoints, so each band is one row taller than the drawn
+    span and the gap is one row, not the two rows the Rust row-indexed fixture
+    has. `typical` is 45 and the strip is a fragment by `2 * 21 <= 45`. One line,
+    and it must come back as one band.
     """
     img = page([(60, 80), (82, 126)])
     lines = LineSegmenter().segment(img)
@@ -652,8 +677,9 @@ def test_the_merge_reads_the_raw_profile_not_the_smoothed_one():
     ink across any gap narrower than `smooth_kernel`, so every such gap reads as
     ink-holding and the clause stops refusing anything.
 
-    A 41-row line and a 25-row line two blank rows apart, on a page whose typical
-    line is 41. Neither is a fragment by the page's own measure and the raw gap is
+    A 41-row line and a 25-row line separated by one blank row -- `rectangle` is
+    inclusive, so the drawn 2-row gap detects as 1 -- on a page whose typical line
+    is 41. Neither is a fragment by the page's own measure and the raw gap is
     empty, so they must stay apart — but the merged band would be 67 rows against
     a ceiling of 82, so the ceiling does NOT catch this one and only the profile
     choice does.
@@ -686,9 +712,9 @@ def test_the_merge_runs_before_the_minimum_height_filter():
     )
     _crop, (_x, y, _w, h) = lines[0]
     assert y <= 40 and h >= 54, (
-        f"the top band is y={y} h={h}, which covers the body at rows 50-94 but "
-        "not the 8-row strip above it — the height filter ran first and dropped "
-        "the strip"
+        f"the top band is y={y} h={h}, which covers the 45-row body but not the "
+        "9-row strip above it — the height filter ran first and dropped the "
+        "strip"
     )
 
 
