@@ -120,7 +120,10 @@ MUTATIONS = [
     # which is what the trailing branch already does. A run starting at h_img has
     # length 0 and `_extract_line` drops it for having no ink columns. Checked
     # exhaustively on 2026-08-28 over 14,280 cases (h 1-8, kernel 3/5/9/15,
-    # min_line_h 0-9): zero differing outcomes. Do not re-add it.
+    # min_line_h 0-9): zero differing outcomes. Re-checked the same day over
+    # 5,760 cases comparing returned BBOXES, not just line counts, once
+    # `test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window`
+    # made crop geometry observable: still zero. Do not re-add it.
     (
         "opencv-python replaces the headless build",
         "pyproject.toml",

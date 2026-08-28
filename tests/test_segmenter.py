@@ -119,21 +119,91 @@ def test_a_page_cannot_hold_a_line_taller_than_itself():
 
 
 def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
-    """The same bound, swept, because one fixture pins one arithmetic accident.
+    """The same bound, swept over the pairs that can actually catch it.
 
-    Every case below asks a page of `h` rows for a minimum of `h + 1`, which no
-    page of that height can satisfy whatever the smoothing window is.
+    Every case asks a page of `h` rows for a minimum of `h + 1`, which no page
+    of that height can satisfy whatever the smoothing window is. The sweep used
+    to run all 28 pairs of h 1-7 against kernel 3/5/9/15 and report that as its
+    coverage. Measured against the pre-fix scan on 2026-08-28, only 10 of those
+    28 returned a line at all: the other 18 passed without the fix, which makes
+    them decoration, and the whole h=1 row asserted `[] == []` because a 1-row
+    image is uniform and adaptive thresholding finds no ink in it.
+
+    Two structural reasons a pair cannot discriminate, and the predicate below
+    is both of them:
+
+    * The phantom run has to *terminate* inside the smoothed profile. The
+      trailing branch of the scan was always bounded by `h_img`, so a run that
+      reaches the end of the profile was never over-long to begin with.
+      `np.convolve(..., mode="same")` starts its returned window at full index
+      `(h - 1) // 2`, so the run from this fixture's single inked row ends at
+      index `kernel - (h - 1) // 2` — inside the profile only from h=3 up.
+    * That run then has to beat the minimum, i.e. exceed `h`.
+
+    Together: `h + 1 <= kernel - (h - 1) // 2 <= kernel - 1`. That predicate
+    reproduced pre-fix behaviour exactly over h 1-8 against kernel 3/5/9/15/21,
+    0 mismatches, so nothing excluded here would have caught the bug. Each
+    surviving case is guarded for non-vacuity as well, the same way
+    `test_a_page_cannot_hold_a_line_taller_than_itself` is.
     """
-    for h in range(1, 8):
+    cases = [
+        (h, kernel)
+        for h in range(1, 8)
+        for kernel in (3, 5, 9, 15)
+        if h + 1 <= kernel - (h - 1) // 2 <= kernel - 1
+    ]
+    assert len(cases) == 10, (
+        f"the sweep selected {len(cases)} pairs, not the 10 measured to "
+        "discriminate — the predicate and the grid have drifted apart"
+    )
+
+    for h, kernel in cases:
         strip = np.full((h, 40), 255, dtype=np.uint8)
         strip[0, :] = 0
         img = Image.fromarray(strip)
-        for kernel in (3, 5, 9, 15):
-            lines = LineSegmenter(min_line_h=h + 1, smooth_kernel=kernel).segment(img)
-            assert lines == [], (
-                f"a {h}-row page with smooth_kernel={kernel} returned "
-                f"{len(lines)} lines against a minimum of {h + 1}"
-            )
+
+        assert LineSegmenter(min_line_h=1, smooth_kernel=kernel).segment(img), (
+            f"a {h}-row page with smooth_kernel={kernel} yields no line even at "
+            "min_line_h=1, so the next assert is vacuous"
+        )
+        lines = LineSegmenter(min_line_h=h + 1, smooth_kernel=kernel).segment(img)
+        assert lines == [], (
+            f"a {h}-row page with smooth_kernel={kernel} returned "
+            f"{len(lines)} lines against a minimum of {h + 1}"
+        )
+
+
+def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
+    """The other half of the same bug, and the half no line count can see.
+
+    `_extract_line` pads by a fraction of `r_end - r_start`. With the scan
+    unbounded, `r_end` came off the smoothed profile, so on a page shorter than
+    the smoothing window the pad was a fraction of the profile length instead of
+    the line's own height. The line still existed and still counted as one line
+    — only its shape was wrong, which is why the count sweep above cannot catch
+    this and the CHANGELOG claim about it went untested until 2026-08-28.
+
+    Measured 2026-08-28 on this fixture: 3 rows, ink in row 0 across columns
+    8-20, `smooth_kernel=15`. The run terminated at profile index 14, so `pad_x`
+    was `int(14 * 0.15) == 2` rather than `int(3 * 0.15) == 0`, and the crop came
+    back as (6, 0, 16, 3) around a line that is (8, 0, 12, 3) — four columns of
+    padding the ink never asked for.
+    """
+    strip = np.full((3, 40), 255, dtype=np.uint8)
+    strip[0, 8:21] = 0
+    img = Image.fromarray(strip)
+
+    lines = LineSegmenter(min_line_h=1, smooth_kernel=15).segment(img)
+    assert len(lines) == 1, (
+        "the fixture has to segment at all, or the next assert is vacuous"
+    )
+    crop, bbox = lines[0]
+    assert bbox == (8, 0, 12, 3), (
+        f"crop is {bbox}; a 3-row line pads by int(3 * 0.15) == 0 in x and "
+        "int(3 * 0.20) == 0 in y, so any margin here was taken from a height "
+        "the page does not have"
+    )
+    assert crop.size == (12, 3)
 
 
 def test_a_single_line_crop_at_the_model_height_is_not_shredded():

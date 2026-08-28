@@ -65,7 +65,7 @@ scanned the profile instead.
 
 Reachable without a synthetic fixture, because `smooth_kernel` is a constructor
 argument — at the mon_OCR reference's 15 it caught any crop under 15 rows tall.
-Default construction on a page taller than 5 rows was never affected.
+Default construction on a page of 5 rows or taller was never affected.
 
 ### Lineage, stated where it is read
 
@@ -78,11 +78,37 @@ any number, not a different tuning — detects runs on the smoothed profile wher
 reference detects on the raw one, and has no pre-blur, no smear, no gap merge, no
 outlier rejection and no tiling.
 
-The docstring now says all of that, plus the two ways it differs from
-`monocr_onnx` itself (PIL-only input, and `smooth_kernel` where the port says
-`smooth_window`), and the precondition it relies on: `MonOCR._prepare_image`, not
-this class, is what guarantees the dark-on-light input its `THRESH_BINARY_INV`
-needs.
+The docstring now says all of that, plus the four ways it differs from
+`monocr_onnx` itself and the precondition it relies on: `MonOCR._prepare_image`,
+not this class, is what guarantees the dark-on-light input its
+`THRESH_BINARY_INV` needs.
+
+The four are led by the one that breaks a call site hardest: `segment` here
+returns `(crop, bbox)` tuples where the port returns `{'img', 'bbox'}` dicts, and
+only one direction fails loudly — `crop, bbox = line` against a dict unpacks its
+two keys and feeds the model the string `'img'`. Then `smooth_kernel` against
+`smooth_window`, PIL-only input, and no `tile_line`/`cut_column`.
+
+Two more divergences from the mon_OCR reference are now recorded, both the same
+class as the max-versus-mean one and both previously unlisted. `pad_x` here is a
+fraction of the line HEIGHT; the reference takes a fraction of the line WIDTH
+floored at an absolute 10px, so a short tall word and a long thin line are padded
+the opposite way round. Beside it: 0.40 against 0.20 vertically, rounding up
+against truncating, and column extents off a dilated mask against the plain
+binary one.
+
+And the parity guard no longer defends only numbers. It now names the four things
+that must agree — which profile the boundaries come off, which statistic the
+threshold is calibrated on, which quantity each constant is a fraction of, and
+only then the value — because a formula change moves the cuts with every number
+left equal and a constants diff will not see it. That is live: observed
+2026-08-28, `monocr-onnx`'s Python binding now detects boundaries on the raw
+profile while this package still detects on the smoothed one, with every constant
+still equal. Matching it is sequenced separately and was not done here.
+
+The reason the unsliced `np.max(hist)` beside the sliced scan is correct is now
+recorded at the line, because slicing both — the obvious tidy-up — would break
+calibration parity with `monocr-onnx`, which also takes its max unsliced.
 
 No constant was changed. Which set is right is a measurement question and neither
 repository has anything that scores a segmenter.

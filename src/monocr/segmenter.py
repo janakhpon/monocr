@@ -81,19 +81,28 @@ class LineSegmenter:
 
     Lineage, checked against both siblings on 2026-08-28 rather than assumed.
 
-    This is a port of ``monocr_onnx.segmenter.LineSegmenter`` and that claim
-    holds: every constant is equal -- adaptive block 25 and C 10,
+    This is a port of ``monocr_onnx.segmenter.LineSegmenter`` and the constants
+    claim holds: every one is equal -- adaptive block 25 and C 10,
     threshold_ratio 0.02, min_line_h 10, smoothing 5, pads of 0.20 and 0.15 of
     the core line height -- and the printed-rule block above is the same code
-    with the same RULE_SPAN and RULE_MAX_INK_SHARE. Changing a number here
-    without changing it there is what makes two bindings disagree on one input.
+    with the same RULE_SPAN and RULE_MAX_INK_SHARE.
 
-    Two differences that are not cuts. This class takes PIL only, where the port
-    also accepts a bare ndarray; and its smoothing argument is ``smooth_kernel``
-    where the port says ``smooth_window``, so a keyword call does not carry
-    across. The port also ships ``tile_line``/``cut_column`` for a line too wide
-    for the model window. This module has neither, so an over-wide line is
-    squeezed to fit instead of being split -- see ``ocr._predict_single_line``.
+    Four divergences from the port that are not constants, worst first.
+
+    ``segment`` here returns a list of ``(crop, bbox)`` tuples; the port returns
+    a list of ``{'img': ..., 'bbox': ...}`` dicts. The bbox is the same
+    ``(x, y, w, h)`` either way, so the damage is entirely in the container:
+    port code doing ``line['img']`` raises against this module, and code here
+    doing ``crop, bbox = line`` against the port silently unpacks the dict's two
+    KEYS and hands the model the string ``'img'``. That is the one that breaks a
+    call site hardest, because only one direction fails loudly.
+
+    The smoothing argument is ``smooth_kernel`` here and ``smooth_window``
+    there, so a keyword call does not carry across either. This class takes PIL
+    only, where the port also accepts a bare ndarray. And the port ships
+    ``tile_line``/``cut_column`` for a line too wide for the model window; this
+    module has neither, so an over-wide line is squeezed to fit instead of being
+    split -- see ``ocr._predict_single_line``.
 
     It is NOT a port of the mon_OCR reference, and the distance is wider than
     tuning. The gap threshold here is a fraction of the profile MAX; the
@@ -105,8 +114,50 @@ class LineSegmenter:
     here entirely -- a pre-blur, a morphological smear, a bounded gap merge, and
     outlier rejection. Expect different line counts on the same page.
 
-    Which set is right is unmeasured: nothing in either repository scores a
-    segmenter, so do not close the question by editing a number here.
+    The crop geometry parts company the same way, and this list omitted it until
+    2026-08-28. ``_extract_line`` here pads horizontally by
+    ``int(h_raw * 0.15)``, a fraction of the line's HEIGHT. Read in
+    ``mon_OCR/src/monocr/segmenter.py`` on 2026-08-28, in a tree another agent
+    was editing at the time, so re-read it rather than trusting this line:
+    ``pad_x = max(pad_x_floor_px, int(np.ceil(coreW * pad_x_factor)))`` -- a
+    fraction of the line's WIDTH, 0.05 of it, floored at an absolute 10 px. A
+    short tall word and a long thin line get opposite treatment, so no constant
+    reconciles those two either -- the reference's own header records the
+    divergence in the same terms. Beside it, three more in the same method: the
+    vertical factor is 0.40 there against 0.20 here, both pads round up there
+    and truncate here, and the column extents come off a dilated mask there
+    against the plain binary one here, which widens the crop before any pad.
+
+    Parity is not only about which numbers. Four things must agree before two
+    bindings cut a page alike, and a value is the last of them:
+
+    1. Which profile the run boundaries are read off -- raw or smoothed.
+    2. Which statistic the threshold is calibrated on -- max, or mean of the
+       non-zero rows.
+    3. Which quantity each constant is a fraction of -- line height, line width,
+       page extent, or absolute pixels.
+    4. Only then the value itself.
+
+    A change to any of the first three moves the cuts with every number left
+    equal, and a review that diffs constants will not see it. So: changing a
+    number here without changing it there is what makes two bindings disagree on
+    one input, and so is changing a basis, a statistic or a profile.
+
+    That is live rather than hypothetical. Observed 2026-08-28 in
+    ``monocr-onnx`` at commit a3e3dba, "fix(python): detect line boundaries on
+    the raw profile, not the smoothed" -- local and unpushed at the time, so
+    confirm before relying on it: the port's Python binding now detects
+    boundaries on the RAW profile while still calibrating on the smoothed one,
+    and this module still detects on the smoothed profile. Every constant listed
+    above is still equal, and the two now cut a tightly-spaced page differently.
+    Bringing that across here is sequenced separately and on purpose. Do not do
+    it as a drive-by, and do not read the equal constants as proof the two agree.
+
+    Which set is right is unmeasured where it counts. The port's raw-profile
+    change carries its own measurement, on drawn bands at fixed gap widths, and
+    the reference's gap ratio carries one too; what neither repository has is
+    anything that scores a segmenter against labelled pages. So do not close the
+    question by editing a number -- or a formula -- here.
 
     Polarity is a precondition, not a stage. This class treats dark pixels as
     ink and never probes; ``MonOCR._prepare_image`` runs ``normalize_polarity``
@@ -154,6 +205,25 @@ class LineSegmenter:
         # is 0 and the strict `>` excludes every row. An explicit early return
         # here was dead code — mutation testing on 2026-08-16 removed it and no
         # test changed.
+        # The max is taken on the UNSLICED profile while the scan below reads
+        # `hist[:h_img]`. The asymmetry is deliberate; do not tidy it up by
+        # slicing both. `monocr_onnx` also takes its max on the whole smoothed
+        # profile, so slicing here would make the two bindings calibrate the
+        # same page differently -- a formula divergence with every constant
+        # still equal, which is the class of change the class docstring warns
+        # about.
+        #
+        # It is also safe, not merely conventional. Row sums are non-negative
+        # and the kernel is uniform, so when the window is wider than the page
+        # every full-convolution index in `[h_img - 1, kernel - 1]` covers the
+        # whole profile and holds the same, maximal value. `mode="same"` returns
+        # the window starting at full index `(h_img - 1) // 2`, so full index
+        # `h_img - 1` lands at returned index `h_img - 1 - (h_img - 1) // 2`,
+        # which is always within the first `h_img` elements. Measured 2026-08-28
+        # over 138,658 exhaustive binary profiles (h 1-12, kernel 1-17) and
+        # 297,712 random float32 ones: the sliced and unsliced maxima never
+        # differed in value, only ever by one ULP of float32 summation order
+        # (worst relative gap 3.8e-16).
         max_val = np.max(hist)
         threshold = max_val * self.threshold_ratio
 
