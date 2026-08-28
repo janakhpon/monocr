@@ -95,7 +95,7 @@ def test_a_speckle_shorter_than_the_minimum_line_height_is_ignored():
 
 
 def test_a_page_cannot_hold_a_line_taller_than_itself():
-    """The row scan must be bounded by real rows, not by the smoothed profile.
+    """No run may describe rows the page does not have.
 
     `np.convolve(..., mode="same")` never returns fewer elements than its
     kernel, so on a page shorter than `smooth_kernel` the profile describes rows
@@ -105,8 +105,17 @@ def test_a_page_cannot_hold_a_line_taller_than_itself():
 
     Since 2026-08-28 the scan reads the RAW profile, which is exactly `h_img`
     long, so the over-long run is structurally impossible rather than clipped by
-    a slice. This test therefore now guards against a regression to the smoothed
-    profile, which is the only way the phantom rows come back.
+    a slice. Hence the summary above is a property, not an instruction about a
+    bound: there is no bound left to get right.
+
+    SCOPE, measured 2026-08-28. This guards the UNBOUNDED smoothed profile only.
+    Under the bounded variant, `smoothed_hist[:h_img]`, which is literally the
+    pre-2026-08-28 code, this test and the sweep below BOTH PASS -- the slice
+    removes the phantom rows and leaves only the boundary bleed, which a 3-row
+    single-inked-row fixture cannot see. That variant is caught by four other
+    tests: the crop-geometry one below, `test_line_boundaries_come_off_the_raw_
+    profile`, `test_an_even_kernel_does_not_fuse_a_gap_it_used_to`, and
+    `test_the_gap_threshold_is_calibrated_on_the_smoothed_profile`.
 
     Not a synthetic-only case. `smooth_kernel` is a constructor argument, so at
     the mon_OCR reference's 15 any crop under 15 rows tall is in range.
@@ -153,10 +162,16 @@ def test_no_short_page_reports_a_line_it_is_too_short_to_hold():
     surviving case is guarded for non-vacuity as well, the same way
     `test_a_page_cannot_hold_a_line_taller_than_itself` is.
 
-    The predicate is kept as-is now that the scan reads the raw profile, because
-    it still selects exactly the pairs that discriminate against a regression to
-    the smoothed profile — bounded or not. On the raw profile every one of these
-    fixtures yields a run of length 1, so they pass structurally.
+    The predicate is kept as-is now that the scan reads the raw profile: on the
+    raw profile every one of these fixtures yields a run of length 1, so they
+    pass structurally, and the pairs still discriminate against the UNBOUNDED
+    smoothed profile.
+
+    It does NOT discriminate against the bounded variant. That was claimed here
+    until 2026-08-28 ("bounded or not") and measured false the same day: under
+    `smoothed_hist[:h_img]` every case in this sweep passes. See the scope note
+    on `test_a_page_cannot_hold_a_line_taller_than_itself` for what does catch
+    it.
     """
     cases = [
         (h, kernel)
@@ -290,23 +305,33 @@ def test_line_boundaries_come_off_the_raw_profile():
     )
 
 
-def test_an_even_smoothing_window_does_not_widen_to_the_odd_one_above_it():
-    """The even-kernel case, which no sibling binding has.
+def test_an_even_kernel_does_not_fuse_a_gap_it_used_to():
+    """Even kernels, which no sibling binding tests at all.
 
-    numpy's `mode='same'` is a true even-width box: `smooth_profile(raw, 4)` has
-    exactly 4 taps and divides by 4. The hand-rolled loops in the JS, Go and
-    Rust bindings span `2 * (w // 2) + 1`, so an even window there behaves as the
-    odd window above it. Measured here 2026-08-28: the smoothed profile's fusion
-    break point is exactly `smooth_kernel` at every kernel from 1 to 16, and a
-    second from-scratch measurement the same day agreed — kernel 4 fused gaps
-    1-3 and split at 4, kernel 6 fused 1-5 and split at 6, where the hand-rolled
-    `2 * (k // 2) + 1` law would have given 1-4 and 1-6. The two laws agree on
-    odd kernels and part company on every even one.
+    RENAMED 2026-08-28, because the old name --
+    `test_an_even_smoothing_window_does_not_widen_to_the_odd_one_above_it` --
+    named a property this test cannot see. Measured: replacing `np.ones(window)`
+    with `np.ones(2 * (window // 2) + 1)`, i.e. giving numpy the sibling
+    bindings' span law, leaves every case here PASSING. Only
+    `test_smooth_profile_is_a_true_window_tap_box` kills that mutant, because
+    post-fix the parity law is observable on the helper and not through
+    `segment()` at all -- the raw profile splits at every gap whatever the
+    kernel. A test named for a law it cannot detect is worse than no test, since
+    it makes the law look covered.
 
-    Post-fix the raw profile splits at every gap whatever the kernel, which is
-    what this asserts. The parity law itself is only observable on the smoothed
-    profile now, and `test_smooth_profile_is_a_true_window_tap_box` pins it
-    there.
+    What it does check, and this is worth keeping: every one of these pairs used
+    to come back FUSED, and none does now. It also dies under a regression to
+    the smoothed profile, bounded or unbounded.
+
+    The parity law itself, for the record. numpy's `mode='same'` is a true
+    even-width box: `smooth_profile(raw, 4)` has exactly 4 taps and divides by 4.
+    The hand-rolled loops in the JS, Go and Rust bindings span
+    `2 * (w // 2) + 1`, so an even window there behaves as the odd window ABOVE
+    it -- one tap MORE than asked for, not one fewer. Measured here 2026-08-28
+    and confirmed by a second from-scratch measurement the same day: this
+    module's break point is exactly `smooth_kernel` at every kernel 1 to 16, so
+    kernel 4 fused gaps 1-3 and split at 4 where the sibling law gives 1-4 and a
+    split at 5.
     """
     for kernel, gap in ((2, 1), (4, 2), (4, 3), (6, 5), (12, 11)):
         lines = LineSegmenter(smooth_kernel=kernel).segment(two_bands(gap))
@@ -330,15 +355,21 @@ def test_the_gap_threshold_is_calibrated_on_the_smoothed_profile():
 
     Measured 2026-08-28, twice and independently: calibrating on the smoothed
     profile returns this one band, calibrating on the raw profile returns ZERO
-    lines and loses the only real line on the page. So moving the calibration
-    along with the detection would trade a fused-line bug for a dropped-line
-    one.
+    lines and loses the only real line on the page.
+
+    That is HALF of a trade, and this test pins the shipped side of it, not a
+    proof that the shipped side is right. Add a faint bridge across a gap
+    instead of an isolated faint band and it reverses: two 12-row bands with a
+    4-column bridge summing 1,020 a row come back as ONE fused band under the
+    smoothed calibration and as TWO, correctly split, under the raw one. A lower
+    threshold keeps faint lines and fuses across faint bridges. Which is better
+    is unmeasured here; see `segment` step 4 and the CHANGELOG.
 
     An ordinary page cannot tell the two calibrations apart, which is why the
-    fixture is this strange. Smoothing does not lower the peak of a band taller
-    than the window, so `max(smoothed) == max(raw)` in exact float equality on
-    every drawn page tried — 29 bands, gaps 1-20, band heights 5 and up,
-    64,260.0 either way.
+    fixture is this strange. Smoothing does not lower the peak of a band at
+    least as tall as the window — height 5 at kernel 5 already preserves it — so
+    `max(smoothed) == max(raw)` in exact float equality on every drawn page
+    tried: 29 bands, gaps 1-20, band heights 5 and up, 64,260.0 either way.
 
     The spike row itself is never a line, being 1 row against a minimum of 10.
     """

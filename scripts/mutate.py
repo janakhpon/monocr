@@ -133,7 +133,11 @@ MUTATIONS = [
         "    kernel = np.ones(window)",
     ),
     (
-        "an even smoothing window widens to the odd one above it (the JS/Go/Rust law)",
+        # The JS and RUST span law. Not Go's: Go spans the same rows but divides
+        # by the requested window rather than the rows visited, so its values are
+        # inflated by (window + 1) / window at an even window and this mutant does
+        # not reproduce them. Named for all three until 2026-08-28.
+        "an even smoothing window widens to the odd one above it (the JS/Rust law)",
         "src/monocr/segmenter.py",
         "    kernel = np.ones(window) / window\n"
         '    return np.convolve(raw_hist, kernel, mode="same")',

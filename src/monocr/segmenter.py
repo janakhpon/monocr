@@ -83,19 +83,30 @@ def smooth_profile(raw_hist, window):
     returns a fresh slice on purpose. Do not read the Go note as a bug report
     about this one.
 
-    A TRUE `window`-tap box. numpy's kernel has exactly `window` taps whatever
-    the parity and `mode='same'` divides by `window`, so a run of `window` zero
-    rows always drives at least one output row to zero and a run of
-    `window - 1` never does. Measured 2026-08-28 over windows 1-16: the zero-run
+    A TRUE `window`-tap box. The kernel is `np.ones(window) / window`, so it has
+    exactly `window` taps whatever the parity and carries the division itself --
+    `mode='same'` only selects which slice of the full convolution comes back.
+    A run of `window` zero rows therefore always drives at least one output row
+    to zero, and a run of `window - 1` never does. Measured 2026-08-28 over windows 1-16: the zero-run
     break point is exactly `window` at every one of them, and the peak of an
     isolated spike is exactly `spike / window`.
 
     That is the same law as `monocr_onnx.segmenter.smooth_profile`, read on
     2026-08-28, and NOT the law of that repository's JS, Go and Rust bindings:
     those loop `[-window//2, +window//2]`, which is `2 * (window // 2) + 1`
-    taps, so an even window there spans one row MORE than asked and behaves as
-    the odd window above it. Their break points run 1,3,3,5,5,7,... Do not carry
-    a table across in either direction.
+    taps, so an even window there spans one row MORE than asked. Their break
+    points run 1,3,3,5,5,7,... Do not carry a table across in either direction.
+
+    "and behaves as the odd window above it" was written here and is only true
+    of JS and Rust, which divide by the number of rows actually visited and so
+    really are a `2 * (window // 2) + 1`-tap box. Go divides by the REQUESTED
+    `window` (`go/pkg/segmenter/segmenter.go`, read 2026-08-28: it sums over
+    `[-overflow, +overflow]` with `overflow := window / 2`, then
+    `sum / float64(window)`). At an even window it therefore sums `window + 1`
+    terms and divides by `window`, inflating every interior row by
+    `(window + 1) / window` -- enough that its smoothed peak CLEARS the raw
+    peak. Its break point still matches, because that is set by the span and the
+    threshold scales with the inflation; its VALUES do not.
 
     `mode='same'` returns `max(len(raw_hist), window)` elements, so for a window
     wider than the page this profile is LONGER than the page. That is one reason
@@ -415,11 +426,22 @@ class LineSegmenter:
         * The pads are asymmetric: ``pad_x`` columns of margin on the left and
           ``pad_x - 1`` on the right. Universal, on every crop that is not
           clipped by a page edge.
-        * The reported width understates the ink by one for the same reason.
-          ``x2 - x1`` is ``x_end - x_start + 2 * pad_x``, where the ink actually
-          spans ``x_end - x_start + 1`` columns.
+        * The crop is one column short, and the bbox reports that honestly:
+          ``x2 - x1`` is exactly ``crop.size[0]``, so nothing is MISreported.
+          Away from the page edges that width is
+          ``x_end - x_start + 2 * pad_x`` where the ink spans
+          ``x_end - x_start + 1`` columns; at an edge the ``max(0, ...)`` and
+          ``min(w, ...)`` clamps make even that identity not hold.
         * Ink is only LOST at ``pad_x == 0``, where the last ink column falls
-          outside the crop outright. That needs a caller passing ``min_line_h``
+          outside the crop outright -- and on a line only ONE column wide that
+          is the whole line. Measured 2026-08-28 at ``min_line_h=6`` with a
+          single ink column over 6 rows: bbox width ``0``, crop ``0x8``. That
+          crop is then fatal rather than merely lossy, because
+          ``ocr.py::_predict_single_line`` computes ``ratio = w / h = 0``, hence
+          ``new_w = 0``, and ``Image.resize((0, 160))`` raises ``ValueError``.
+          Unreachable through ``MonOCR``, which constructs ``LineSegmenter()``
+          at the default. "One pixel short on the right" is the wrong
+          description of this branch. That needs a caller passing ``min_line_h``
           below 7: ``pad_x = int(h_raw * 0.15)`` and ``h_raw >= min_line_h``, so
           ``min_line_h >= 7`` forces ``pad_x >= 1`` and the last ink column is
           always inside. At the default 10 no ink can be lost, so the data-loss
@@ -432,8 +454,12 @@ class LineSegmenter:
         reference ``mon_OCR/src/monocr/segmenter.py`` at HEAD 8f645ffa on
         2026-08-28 (``x0, x1`` at 841, ``coreW = x1 - x0`` at 843, ``xb`` at
         853, ``crop`` at 856), whose ``coreW`` carries the same one-column
-        understatement. In the reference no ink can be lost at any setting: its
-        ``pad_x`` is floored at an absolute 10 px, ``_PAD_X_FLOOR_PX``.
+        understatement. In the reference no ink can be lost at any DEFAULT: its
+        ``pad_x`` is floored at ``_PAD_X_FLOOR_PX``, 10 px. Not "at any setting"
+        -- ``pad_x_floor_px`` is a constructor argument there too
+        (``segmenter.py:369, 377``), so ``pad_x_floor_px=0`` plus a one-column
+        line reaches ``pad_x == 0`` in the reference as well. This class's own
+        docstring already says both values are caller-overridable there.
 
         Shifting every crop by a pixel across three implementations -- two of
         them published packages, and one the corpus every page-level CER in this

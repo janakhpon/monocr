@@ -135,8 +135,14 @@ spike row.
 
 The `hist[:h_img]` bound on the scan is gone rather than left looking load-bearing.
 `np.sum(binary, axis=1)` has exactly `h_img` elements, so detecting on it makes the
-phantom rows above structurally impossible instead of guarded, and the two
-short-page tests now defend against a regression to the smoothed profile.
+phantom rows above structurally impossible instead of guarded.
+
+The two short-page tests defend against a regression to the **unbounded** smoothed
+profile only. Measured 2026-08-28: under the bounded variant `smoothed_hist[:h_img]`,
+which is the pre-change code, both of them pass — the slice removes the phantom rows
+and leaves only the boundary bleed, which their fixtures cannot see. Four other tests
+catch that variant, and the scope note on
+`test_a_page_cannot_hold_a_line_taller_than_itself` names them.
 
 This closes the divergence `monocr-onnx` opened at its commit a3e3dba. Read on
 2026-08-28, this package was the last of six implementations still detecting on the
