@@ -56,6 +56,18 @@ Issues = "https://github.com/janakhpon/monocr/issues"
 [project.scripts]
 monocr = "monocr.cli:main"
 
+[tool.pytest.ini_options]
+# Pillow removes the `mode` parameter of `Image.fromarray` in Pillow 13
+# (2026-10-15), and a uint8 2-D array already infers "L", so every call site here
+# passed it redundantly. Turned into an error rather than left as a warning
+# because a deprecation with a shipped removal date is a dated build failure, and
+# a warning in a green run is exactly what nobody reads. Scoped to this one
+# message: a blanket `error::DeprecationWarning` would fail on any dependency's
+# unrelated notice and get reverted the first time it did.
+filterwarnings = [
+    "error:'mode' parameter is deprecated:DeprecationWarning",
+]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

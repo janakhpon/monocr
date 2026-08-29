@@ -106,6 +106,41 @@ def test_degenerate_masks_do_not_trap(shape):
 
 
 
+def test_a_run_touching_the_page_edge_is_credited_with_the_overhang():
+    """Erosion treats out-of-image pixels as ink, so the span bar halves at an edge.
+
+    This is what makes a printed border findable -- a border touches all four
+    edges -- and it is the half of RULE_SPAN the module comment used to omit.
+    The same 10-px run is a rule against a 15-px kernel at x=0 and is not one at
+    x=5, on the same 20-px-wide page. The speckle is there so the run is a
+    minority of the ink; without it RULE_MAX_INK_SHARE abandons the whole pass
+    and the difference is invisible.
+    """
+
+    def mask(run_x0):
+        m = np.zeros((10, 20), np.uint8)
+        m[5, run_x0 : run_x0 + 10] = 255
+        for x in range(0, 20, 3):
+            m[2, x] = 255
+            m[8, x] = 255
+        return m
+
+    at_edge, in_middle = mask(0), mask(5)
+
+    cleaned = suppress_page_rules(at_edge)
+    assert np.count_nonzero(cleaned[5]) == 0, (
+        "a 10-px run at x=0 survived a 15-px kernel, so the border overhang is "
+        "no longer counted as ink and a printed frame will be missed"
+    )
+    assert np.count_nonzero(cleaned[[2, 8]]) == 14, (
+        "the speckle was eaten too, so this is not measuring the edge run"
+    )
+    assert np.array_equal(suppress_page_rules(in_middle), in_middle), (
+        "the same run away from the edge was called a rule, so the span test is "
+        "shorter than RULE_SPAN everywhere and glyph strokes are at risk"
+    )
+
+
 def test_the_frame_no_longer_inks_every_row_STRONG():
     """The mechanism, measured against what a clean page achieves.
 

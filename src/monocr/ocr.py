@@ -307,7 +307,11 @@ class MonOCR:
         target_w = TARGET_WIDTH
         target_h = getattr(self, "input_height", TARGET_HEIGHT)
         
-        # Aspect-ratio preserving resize (v2.0 alignment: height to 128)
+        # Aspect-ratio preserving resize to the height the graph declares.
+        # `target_h` is read off the ONNX input shape in __init__, so this is
+        # 160 at the pinned revision and follows the model if it is re-exported.
+        # It said "v2.0 alignment: height to 128" until 2026-08-27: 128 was the
+        # v2 height, and naming it here invited someone to hardcode it back.
         w, h = image.size
         ratio = w / h
         new_w = int(target_h * ratio)
@@ -324,7 +328,7 @@ class MonOCR:
         img_arr = np.array(new_img).astype(np.float32)
         img_norm = (img_arr - IMAGE_NORM_MEAN) / IMAGE_NORM_STD
         
-        # Add channel and batch dimensions: [1, 1, 128, 1024]
+        # Add channel and batch dimensions: [1, 1, 160, 1024] at the pinned revision
         tensor = np.expand_dims(img_norm, axis=(0, 1))
         
         # Run inference

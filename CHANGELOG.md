@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Two correctness fixes to the inference path. Neither is released yet, and the
+Five correctness fixes to the inference path. None is released yet, and the
 newest released section below describes a segmenter with no suppression pass and an
 inference path with no polarity probe — which is why this section exists rather
 than waiting for a version bump.
@@ -37,16 +37,382 @@ border adds a constant ink floor to every row it spans, and once that floor clea
 the gap threshold no in-frame row reads as a gap: the page returns as one band and
 is squeezed into the model window.
 
-Measured through this segmenter over twelve real MNEC papers: bands returned went
-from 131 to 197, with four of the twelve collapsing to three bands or fewer without
-it. Pages carrying no rules are untouched to the pixel, which is what makes the
-pass safe to run unconditionally.
+Measured through this segmenter over the twelve renderable MNEC page-ones: bands
+returned went from 124 to 169, with four of the twelve collapsing to three bands or
+fewer without it. The per-page table is in
+`tests/test_page_rules.py::test_segment_wires_in_the_suppression`, which is the
+record of this measurement — this line said 131 to 197 until 2026-08-28, a roll-up
+figure taken from a sibling repository's header that nothing itemises and that
+disagrees with the numbers this package landed beside its own code. Pages carrying
+no rules are untouched to the pixel, which is what makes the pass safe to run
+unconditionally.
 
 Two guards, both with their measurements in the source: `RULE_SPAN = 0.5`, because
-no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long; and
+no Mon, Burmese or Latin glyph holds an unbroken stroke half a page long -- the
+interior case, since OpenCV counts the out-of-image overhang as ink and the bar is
+roughly half that at a page edge, which is what makes a border findable; and
 `RULE_MAX_INK_SHARE = 0.80`, because `RULE_SPAN` is a fraction of the page, so on a
 short page a tall text block exceeds it vertically and every glyph column reads as a
 rule.
+
+**The row scan no longer runs past the bottom of the page.**
+`np.convolve(..., mode="same")` never returns fewer elements than its kernel, so on
+a page shorter than `smooth_kernel` the smoothed profile described rows that do not
+exist. A 3-row page produced a run of length 4: it satisfied a `min_line_h` of 4
+that no 3-row page can, and that inflated height was what `_extract_line` took its
+padding from. `monocr-onnx` bounds the same loop with `range(h_img)`; this package
+scanned the profile instead.
+
+Reachable without a synthetic fixture, because `smooth_kernel` is a constructor
+argument — at the mon_OCR reference's 15 any crop under 15 rows tall is in
+range, and drawn fixtures at that window differ from 3 rows to 10.
+Default construction on a page of 5 rows or taller was never affected.
+
+**Line boundaries now come off the raw profile.** The gap threshold is still
+calibrated on the smoothed profile's max — that statistic and that basis are
+unchanged — but the run boundaries are read off the raw row sums. Smoothing
+averages over `smooth_kernel` rows, so a gap narrower than the whole window never
+reaches zero in the smoothed profile: the ink either side bleeds into it, the bled
+rows clear the 2% threshold, and two distinct lines come back as one band.
+
+Measured at this package's own parameters — `min_line_h` 10, `smooth_kernel` 5,
+`threshold_ratio` 0.02 — on 29 drawn glyph-blob bands of 12 rows each:
+
+| gap between bands | detecting on the smoothed profile | detecting on the raw profile |
+|---|---:|---:|
+| 1, 2, 3, 4 px | 1 band of 29 drawn | 29 of 29 |
+| 5 px and up | 29 of 29 | 29 of 29 |
+
+The break point is the smoother's full width — exactly `smooth_kernel`, at every
+window from 1 to 16, **even ones included**. numpy's `mode='same'` is a true k-tap
+box at both parities, so a zero-run of length g drives an output row to zero iff
+`g >= k`; at `g == k - 1` the smoothed minimum is `band_sum / k`, far above a 2%
+threshold, which is why the count jumps 1 to 29 with no intermediate value.
+
+That is this package's law and not the siblings'. The JS, Go and Rust bindings
+hand-roll `[i - k//2, i + k//2]`, which is `2 * (w // 2) + 1` taps, so their break
+points run 1,3,3,5,5,7,… The two laws agree on odd windows and part company on every
+even one, where this package breaks a row **earlier**: window 4 fused gaps of 1-3 px
+here against 1-4 there, window 6 fused 1-5 against 1-6. The absence of an
+even-window case is why this went unnoticed. `smooth_kernel` is a constructor
+argument, so a caller who raised it widened the failure with it.
+
+The calibration stays on the smoothed profile while detection moves to the raw one.
+**That split is a trade, not a correctness result**, and it was written up here as a
+correctness result on the strength of a single fixture. Both directions are measured,
+on the same family of page. Take a 1000-px page carrying a dense 1-px spike row: the
+raw max is 127,500 and the smoothed max 25,500, giving thresholds of 2,550 and 510.
+
+- Add a faint 20-row band summing 2,295 a row, which sits between them. Smoothed
+  calibration finds it; raw calibration returns **zero** lines and loses the only
+  real line on the page.
+- Instead add two 12-row bands at rows 40-51 and 70-81 with a faint 4-column bridge
+  across the gap summing 1,020 a row. Smoothed calibration returns **one** band,
+  rows 32-89, the two lines fused; raw calibration returns **two**, correctly split.
+
+A lower threshold keeps faint lines and fuses across faint bridges; a higher one
+splits correctly and drops faint lines. Which is better is a measurement question,
+and it is the same one this file already leaves open below: nothing in any of these
+repositories scores a segmenter against labelled pages. The split is kept because
+every sibling implementation does it that way, so changing it here alone would break
+parity for no measured gain — not because the trade has been settled.
+
+The **detection** half is not a trade: reading boundaries off the smoothed profile
+fuses lines a kernel apart with no compensating benefit, which is why all six
+implementations moved.
+
+On an ordinary page the two calibrations are indistinguishable, which needs saying
+because it means a test at the default ratio proves nothing about them. Smoothing
+does not lower the peak of a band at least as tall as the window — height 5 at
+kernel 5 already preserves it — so `max(smoothed) == max(raw)` in exact float
+equality on every drawn page tried: 29 bands, gaps 1-20, band heights 5 and up,
+64,260.0 either way. Band heights 1-4 at kernel 5 gave smoothed maxima of 12,852,
+25,704, 38,556 and 51,408, which is `min(band_h, kernel) * peak / kernel`, so the
+separations run the other way — 51,408 down to 12,852. Not "exactly `peak / kernel`":
+that figure is 12,852, the separation at height 4 and the smoothed max at height 1
+and neither elsewhere. That is why the calibration test needs a sub-kernel-height
+spike row.
+
+The `hist[:h_img]` bound on the scan is gone rather than left looking load-bearing.
+`np.sum(binary, axis=1)` has exactly `h_img` elements, so detecting on it makes the
+phantom rows above structurally impossible instead of guarded.
+
+The two short-page tests defend against a regression to the **unbounded** smoothed
+profile only. Measured 2026-08-28: under the bounded variant `smoothed_hist[:h_img]`,
+which is the pre-change code, both of them pass — the slice removes the phantom rows
+and leaves only the boundary bleed, which their fixtures cannot see. Four other tests
+catch that variant, and the scope note on
+`test_a_page_cannot_hold_a_line_taller_than_itself` names them.
+
+This closes the divergence `monocr-onnx` opened at its commit a3e3dba. Read on
+2026-08-28, this package was the last of six implementations still detecting on the
+smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the mon_OCR
+reference all read boundaries off the raw one. Sibling trees are other agents' work
+in progress, so treat that as a dated observation.
+
+**Runs split by a single sub-threshold row are now merged back.** Raw-profile
+detection, the fix directly above, is unsafe on its own and shipping it alone was a
+regression. Mon stacks diacritics above the base line, and at print resolution one
+row between the diacritic zone and the consonant bodies dips below the gap
+threshold without reaching zero. Raw detection cuts there: a strip of glyph tops
+that decodes to Mon digits, and a decapitated body that decodes without its asats.
+
+**What is ported from where.** The reference's own merge has two clauses — gap at
+most `_MIN_GAP_MERGE` (10) rows and the raw minimum in the gap above zero — with no
+page median and no ceiling, and it argues against crossing an empty gap at all ("if
+in doubt, we keep lines SEPARATE"). What landed here is `monocr-onnx`'s three-clause
+superset from `9135cab`; from the reference come the constant 10 and the ordering
+(its merge is step 8, its height filter step 9). The fragment clause and the ceiling
+are the Rust binding's.
+
+`merge_runs` fuses a run into the previous one when the gap is at most
+`MIN_GAP_MERGE` (10) rows, **and** either every row in the gap carries ink or the
+shorter of the two runs is at most half a typical line while the taller one is at
+least `min_line_h`, **and** the result is at most twice a typical line. `typical` is
+the page's own median run height over the runs that could BE a line. The merge runs
+**before** the `min_line_h` filter, because a diacritic strip can be shorter than
+the minimum and filtering first discards the strip and leaves the decapitated body
+behind as a whole line.
+
+Measured at this package's own parameters — `min_line_h` 10, `smooth_kernel` 5,
+`threshold_ratio` 0.02 — over 55 real pages, 49 PDF pages rendered at 300 DPI plus
+6 photographed pages, decoded with the pinned model revision `d3d9d5e`. Same
+pipeline, same corpus, one function swapped:
+
+| | runs | bands | garbage bands | clean characters |
+|---|---:|---:|---:|---:|
+| raw detection, no merge | 1,779 | 1,245 | 65 (5.2%) | 32,290 |
+| raw detection + this merge | 1,570 | **1,266** | **58 (4.6%)** | **32,559** |
+
+Band count *rises* while run count falls, because a merged strip-plus-body clears
+`min_line_h` where the strip alone did not. 34 pages gained characters and **none
+lost any**, so the garbage figure is not bought by discarding text. Garbage is a
+band over half Mon digits and longer than 3 characters — the definition `mon_OCR`
+`docs/AUDIT-2026-08-B.md` gives in **F-70**, not F-69. The length clause keeps
+correctly-read page numbers out of the count.
+
+**These numbers are smaller than the sibling figures** usually quoted beside this
+change — 1.2% garbage for shipping nothing, 26.6% for raw detection alone, 0.7% for
+the complete pair. That pair belongs to `se-brain rules/standards/testing.md` §24,
+which draws it from F-69 **and** F-70 together over 24 scanned book pages plus three
+photographs, measured through a sibling CLI. **It is not in F-69**, which is status
+"reported, not fixed" and carries no after-merge measurement at all; an earlier draft
+of this entry and of the source comment cited it there, which was wrong.
+
+The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
+wide; the 145-page image scan F-69 measured is not in this workspace. The mechanism
+and the direction are the same on both metrics. Do not carry the sibling figures into
+this package's source.
+
+The concrete case, on page 1 of `party_mission.pdf` at 300 DPI: the smoothed max was
+84,100, so the threshold was `0.02 * 84,100 = 1,682`, or 6.6 ink pixels a row. Rows
+303-308 each carried exactly **5** ink pixels — under the threshold, over zero — and
+split one line into an 8-row strip and a 32-row body. The 8-row strip is under
+`min_line_h`, so before this change it was dropped and only the decapitated body
+reached the model.
+
+Three design points, each of which cost a rebuild upstream and each of which has a
+test and a mutation here:
+
+- **The height test is against the page median, not the neighbouring run.** Against
+  the neighbour it cascades: the merge grows the accumulated run, a taller run makes
+  the next line look more like a fragment, and upstream one page went from 36 bands
+  to 10 with single bands of 534, 632 and 732 rows and lost 92% of its readable
+  characters.
+- **The ceiling of twice a typical line is load-bearing, not decoration.** Over the
+  55 pages the gap bound and the ink-or-fragment clause together admitted 691
+  candidate merges and the ceiling refused 482 of them.
+- **A vertical smear is not a substitute.** At reach 1 it closes 2-row gaps, the
+  same as the tightest real line spacing on these pages, so it fuses lines that are
+  genuinely separate.
+
+This closes the incomplete port `monocr-onnx` fixed in Rust at `9135cab`. Two of
+its test fixtures do not transfer and were not copied, both for the same reason —
+another clause absorbs the case the fixture claims to isolate, so the corresponding
+mutation survives. Measured here 2026-08-28:
+
+- `a_dip_between_equal_halves_merges_on_ink_alone` uses 40-row halves against 82-row
+  lines, which puts the page median at 82 and makes `2 * 40 <= 82` true, so the
+  fragment clause fires as well and dropping the ink clause **survives**. The
+  fixture here uses 60-row lines instead, giving a median of 60.
+- `a_wide_gap_is_a_line_boundary_however_much_ink_it_holds` uses two 40-row runs 15
+  rows apart, whose merged band would be 95 rows against a ceiling of 80 — so the
+  ceiling refuses it and dropping the gap bound **survives**. The fixture here uses
+  a 24-row pair on a page whose median line is 40, giving a merged band of 64 rows,
+  inside the ceiling.
+
+Both were written that way here first and both mutations survived the first harness
+run, which is how they were found.
+
+**Speckle no longer sets the page's typical line height, and a fragment no longer
+attaches to another fragment.** The merge shipped with two of its four decisions.
+Both gaps were recorded in the source below as known limitations; one of them said
+so with a parity argument that has since stopped being true.
+
+`typical` was medianed over EVERY collected run. The merge deliberately runs before
+the height filter, so its input still holds every speck the profile found, and
+medianing over all of them let noise decide what a typical line is — and the ceiling
+of `typical * 2` with it. `typical` is now the median over runs at least
+`min_line_h` tall, falling back to the unfiltered median when none qualify. The
+fallback is safe rather than principled: on such a page the height filter discards
+everything anyway, so no crop depends on the value.
+
+The fragment clause was `2 * ha <= typical or 2 * hb <= typical` — nothing stopped a
+fragment attaching to another fragment. It is now
+`2 * min(ha, hb) <= typical and max(ha, hb) >= min_line_h`. Measured upstream in
+Rust, twelve 2-row specks chained through the unguarded clause into one 46-row band,
+which clears the height filter and is handed to the recogniser as a line.
+
+Measured here 2026-08-29 at this package's own parameters — `min_line_h` 10,
+`smooth_kernel` 5, `threshold_ratio` 0.02 — over the same 55 real pages, 49 page
+renders plus 6 photographs. Segmentation only: the change is entirely in run and
+band geometry, so nothing here needs the model. The run collector was replayed and
+the replay checked against a real `LineSegmenter().segment()` band count on five
+pages, exact on all five.
+
+| | before | after |
+|---|---:|---:|
+| runs collected | 1,579 | 1,579 |
+| runs under `min_line_h` | 458 (29.0%) | 458 (29.0%) |
+| pages with `typical` under `min_line_h` | 6 | **0** |
+| pages where the merge is a bit-for-bit no-op | 12 | 10 |
+| runs eliminated by merging | 189 | **440** |
+| bands returned | 1,120 | 1,036 |
+| bands made only of sub-`min_line_h` runs | 28 | 48 |
+
+21 of the 55 pages change. The band count *falls* here, the opposite direction from
+the table above, and both are right: raising a collapsed `typical` raises the ceiling
+with it, so merges the ceiling used to refuse now happen. `mon_e_lib.pdf` page 15 is
+the clearest case — its run heights are bimodal, 17 runs at 22-26 rows and 17 at
+51-52, because half its lines were split at the diacritic zone. The unfiltered median
+landed at 23, so a ceiling of 46 refused every rejoin; the filtered median is 51 and
+the page goes from 35 bands to 19, which is about one band per line.
+
+Band count fell on 16 pages and rose on 3. Nothing here scores those bands against
+labelled lines, so read the direction as the mechanism working, not as an accuracy
+result — the same caveat the entry above carries.
+
+**These run totals do not reproduce the 1,779 in the table above**, and the
+difference is the render, not the code. The staged page images used here are
+2426 px wide on a 612 pt page, about 285 DPI; the earlier entry describes 300 DPI
+renders, which split more lines at the threshold. Same pages, coarser raster, 200
+fewer runs. Stated rather than reconciled, because the earlier render was not kept.
+
+The out-of-range gap now has a test and a mutation of its own. `gap_has_ink`
+indexes with an explicit `0 <= y < len(raw_hist)` bound, so a gap running past the
+profile reads as NOT inked, which is what all four `monocr-onnx` bindings answer.
+That was already correct here and stays correct; what was missing was anything
+holding it. The plausible wrong version is
+`np.all(raw_hist[last1:r0] > 0)` — a numpy slice truncates silently, an entirely
+out-of-range gap becomes an empty slice, and `np.all` of nothing is True. The
+sibling Python binding shipped exactly that and merged across rows that do not
+exist.
+
+Checked against the shared oracle as well as the local fixtures: all 18 cases in
+`monocr-monorepo/shared/segmentation-fixtures/merge-cases.json`, which is generated
+from a statement of the four decisions rather than from any port, agree with this
+implementation. That fixture is not wired into this package's suite — it lives in a
+repository `monocr` does not depend on, and a test that skips when a sibling
+checkout is missing is worse than no test.
+
+`scripts/mutate.py` carries 43 mutations, all killed, including six on the two new
+decisions: the all-runs median, the missing fallback, the dropped line guard, the
+guard testing the shorter run instead of the taller, the ratio measuring the taller
+run, and both decisions reverted together. The last one needed the harness to accept
+more than one edit per mutation, because the two decisions MASK each other — an
+unfiltered `typical` collapses the ceiling far enough that an unguarded fragment
+clause reaches the right answer, so the pair together is a different mutant from
+either alone.
+
+### Recorded, not fixed
+
+**The merge's line guard is on the fragment clause only.** `gap_has_ink` carries no
+such guard, so a run of speckle whose every gap row holds ink still chains into a
+band that clears `min_line_h`. That is where the 28 -> 48 in the table above comes
+from: every one of those bands was admitted by the ink clause and none by the
+fragment clause in either form, and they land on the two most speckled pages,
+`mon_e_lib.pdf` page 11 (2 -> 13) and page 41 (0 -> 11), where the collapsed ceiling
+used to refuse them for the wrong reason.
+
+Guarding the ink clause the same way is not an obvious fix and was not attempted. An
+ink-bridged gap means the profile never reached zero, which is the signal that the
+split was the threshold's doing rather than a real break — the case the clause exists
+to rescue. All four `monocr-onnx` bindings share this, so it is a design question for
+the family rather than a local cleanup.
+
+**The merge's `typical` was a median over runs that `min_line_h` discards.** Fixed
+2026-08-29; see the entry above. The reason recorded here for leaving it — that
+`monocr-onnx` and the reference both median over the unfiltered list — had stopped
+being true by the time it was read again.
+
+`_extract_line` mixes an inclusive last-ink-column index with PIL's exclusive
+`crop`, so every crop it returns is one pixel short on the right: the left pad is
+`pad_x` columns and the right pad `pad_x - 1`, and the reported width understates
+the ink by one. Ink is only *lost* at `pad_x == 0`, which needs a caller passing
+`min_line_h` below 7 — `pad_x = int(h_raw * 0.15)` and `h_raw >= min_line_h`, so the
+default 10 forces `pad_x >= 1` and the last ink column is always inside. The
+defaults cannot reach the data-loss path.
+
+Unfixed on purpose. The same arithmetic is in `monocr_onnx` and in the mon_OCR
+reference, whose `pad_x` floor of an absolute 10 px means no setting there can lose
+ink. Correcting it in one place shifts every crop by a pixel and breaks parity with
+two published packages and the corpus every page-level CER in this ecosystem was
+measured against — an owner decision, not a cleanup. The reachability, the
+asymmetry and the sibling and reference line numbers are recorded in the
+`_extract_line` docstring, and the one test that pins a crop geometry says its
+value is measured rather than correct.
+
+### Lineage, stated where it is read
+
+`LineSegmenter`'s docstring claimed step with `monocr_onnx` and said nothing about
+the mon_OCR reference. The first half checks out: every constant is equal, adaptive
+block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
+costly half. This segmenter thresholds at 0.02 of the profile **max** where the
+reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
+any number, not a different tuning — and has no pre-blur, no smear, no outlier
+rejection and no tiling (the reference has all four). It also detected runs on the smoothed profile where the
+reference detects on the raw one, and had no gap merge; both of those are now
+closed, see above.
+
+The docstring now says all of that, plus the four ways it differs from
+`monocr_onnx` itself and the precondition it relies on: `MonOCR._prepare_image`,
+not this class, is what guarantees the dark-on-light input its
+`THRESH_BINARY_INV` needs.
+
+The four are led by the one that breaks a call site hardest: `segment` here
+returns `(crop, bbox)` tuples where the port returns `{'img', 'bbox'}` dicts, and
+only one direction fails loudly — `crop, bbox = line` against a dict unpacks its
+two keys and feeds the model the string `'img'`. Then `smooth_kernel` against
+`smooth_window`, PIL-only input, and no `tile_line`/`cut_column`.
+
+Four more divergences from the mon_OCR reference are now recorded, all
+previously unlisted, and the first is the same class as the max-versus-mean
+one. `pad_x` here is a
+fraction of the line HEIGHT; the reference takes a fraction of the line WIDTH
+floored at an absolute 10px, so a short tall word and a long thin line are padded
+the opposite way round. Beside it: 0.40 against 0.20 vertically, rounding up
+against truncating, and column extents off a dilated mask against the plain
+binary one.
+
+And the parity guard no longer defends only numbers. It now names the four things
+that must agree — which profile the boundaries come off, which statistic the
+threshold is calibrated on, which quantity each constant is a fraction of, and
+only then the value — because a formula change moves the cuts with every number
+left equal and a constants diff will not see it. The first of the four was live
+when this was written — observed 2026-08-28, `monocr-onnx`'s Python binding
+detecting boundaries on the raw profile while this package detected on the
+smoothed one, every constant still equal — and is now closed. Items 2 to 4 are
+open, and item 2 is the one to leave alone: the max-versus-mean split is a tuning
+constant the reference's spec header forbids reconciling.
+
+The reason `np.max` stays unsliced and on the smoothed profile is now recorded at
+the line, because slicing it or moving it to the raw profile — either obvious
+tidy-up — would break calibration parity with `monocr-onnx`, which also takes its
+max unsliced off the smoothed profile.
+
+No constant was changed. Which set is right is still a measurement question:
+individual changes on both sides carry their own measurements, but nothing in
+either repository scores a segmenter against labelled pages.
 
 ### Not changed
 

@@ -23,7 +23,7 @@ from monocr.ocr import normalize_polarity
 def _page(bg: int, ink: int, w: int = 200, h: int = 60) -> Image.Image:
     a = np.full((h, w), bg, dtype=np.uint8)
     a[h // 3 : 2 * h // 3, w // 5 : 4 * w // 5] = ink
-    return Image.fromarray(a, mode="L")
+    return Image.fromarray(a)
 
 
 def test_a_dark_on_light_page_is_returned_unchanged():
@@ -44,7 +44,7 @@ def test_a_dense_page_is_not_mistaken_for_a_dark_one():
     luminance is below 128 and a global test would invert an ordinary dense page."""
     a = np.full((60, 200), 255, dtype=np.uint8)
     a[6:54, 20:180] = 0
-    page = Image.fromarray(a, mode="L")
+    page = Image.fromarray(a)
     assert np.asarray(page).mean() < 128, "fixture must actually be mean-dark"
     assert np.array_equal(np.asarray(normalize_polarity(page)), np.asarray(page))
 
@@ -60,7 +60,7 @@ def test_the_corner_floor_covers_both_axes(shape):
     h, w = shape
     a = np.full((h, w), 0, dtype=np.uint8)
     a[h // 3 : 2 * h // 3, w // 3 : 2 * w // 3] = 255
-    assert np.asarray(normalize_polarity(Image.fromarray(a, mode="L")))[0, 0] == 255
+    assert np.asarray(normalize_polarity(Image.fromarray(a)))[0, 0] == 255
 
 
 def test_the_probe_runs_on_the_real_entry_point():
