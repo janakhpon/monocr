@@ -1,5 +1,7 @@
 # Mon OCR
 
+[![PyPI](https://img.shields.io/pypi/v/monocr.svg)](https://pypi.org/project/monocr/)
+
 Optical Character Recognition for Mon (mnw) text.
 
 Mon is classified as **vulnerable** in UNESCO's Atlas of the World's Languages
