@@ -81,7 +81,11 @@ class MonOCR:
         Initialize Mon OCR.
         
         Args:
-            model_path: Path to the .onnx model file. If None, downloads default v2.0 model.
+            model_path: Path to the .onnx model file. If None, downloads the
+                pinned v3.5 model — `janakhpon/monocr` at revision `d3d9d5e`,
+                160x1024 input, 277 classes against the 276-character charset.
+                See config.HF_REVISION; the pin is what stops `main` moving
+                under an installed copy.
             providers: ONNX Runtime execution providers (e.g. ['CUDAExecutionProvider', 'CPUExecutionProvider']).
         """
         self.session = None
