@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 — 2026-09-04
 
-Five correctness fixes to the inference path. None is released yet, and the
-newest released section below describes a segmenter with no suppression pass and an
-inference path with no polarity probe — which is why this section exists rather
-than waiting for a version bump.
+Five correctness fixes to the inference path. A minor bump rather than a patch:
+every one of them changes what text comes back for some real input, so a caller
+pinning `~=2.3` should read this section before moving.
+
+Also corrected in this release: `MonOCR.__init__`'s docstring said it "downloads
+default v2.0 model" while the pinned artifact has been v3.5 at revision `d3d9d5e`
+throughout, and a second line in the same file already said v3.5 takes a
+160-pixel input. Both shipped inside the 2.3.0 wheel.
 
 ### The model was fed pages it could not read
 
