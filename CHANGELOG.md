@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.1 — 2026-09-24
+
+Documentation only; no behaviour change. Source comments and docstrings in
+`ocr.py` and `segmenter.py`, which ship inside the wheel, no longer cite private
+repositories or internal review records. Each measurement they described is kept,
+with its date, sample size and corpus, and now names its source as "the training
+code", "the reference segmenter" or a sibling CLI. The same wording is applied to
+the test docstrings and to earlier entries in this file. One attribution is also
+corrected: the 1.2% / 26.6% / 0.7% garbage figures come from a separate three-way
+A/B over 24 scanned book pages plus three photographs, not from the 145-page
+raw-detection measurement. No code path changed, the suite passes unchanged, and
+all 43 mutations in `scripts/mutate.py` are still killed.
+
 ## 2.4.0 — 2026-09-04
 
 Five correctness fixes to the inference path. A minor bump rather than a patch:
