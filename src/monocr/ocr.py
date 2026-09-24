@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 # The model is trained on dark text on a light background, and this package never
 # checked which it was given.
 #
-# Measured 2026-08-27 over 300 labelled crops from mon_OCR's
-# `data/real/digits/val`, same graph, only the polarity of the input changed:
+# Measured 2026-08-27 over 300 labelled crops from the training code's digit
+# validation split, same graph, only the polarity of the input changed:
 #
 #     upright, with this probe      CER 0.0000   300/300 exact
 #     inverted, with this probe     CER 0.0000   300/300 exact
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # close: four corner patches. The caveat is that those crops are Myanmar digits
 # on composited backgrounds, so the effect on full Mon text lines is unmeasured.
 #
-# A COPY of `mon_OCR/src/monocr/utils.py::to_normalized_grayscale`'s steps 1-3,
+# A COPY of the training code's `to_normalized_grayscale` steps 1-3,
 # deliberately not a shared module: these packages ship independently and a
 # dependency across that boundary is coupling their own docs refuse. Step 4 of
 # that function, background levelling, is NOT ported here -- it is what the

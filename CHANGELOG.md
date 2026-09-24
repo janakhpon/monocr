@@ -68,7 +68,7 @@ padding from. `monocr-onnx` bounds the same loop with `range(h_img)`; this packa
 scanned the profile instead.
 
 Reachable without a synthetic fixture, because `smooth_kernel` is a constructor
-argument — at the mon_OCR reference's 15 any crop under 15 rows tall is in
+argument — at the reference segmenter's 15 any crop under 15 rows tall is in
 range, and drawn fixtures at that window differ from 3 rows to 10.
 Default construction on a page of 5 rows or taller was never affected.
 
@@ -150,9 +150,9 @@ catch that variant, and the scope note on
 
 This closes the divergence `monocr-onnx` opened at its commit a3e3dba. Read on
 2026-08-28, this package was the last of six implementations still detecting on the
-smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the mon_OCR
-reference all read boundaries off the raw one. Sibling trees are other agents' work
-in progress, so treat that as a dated observation.
+smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the reference
+segmenter all read boundaries off the raw one. Sibling trees were under active edit
+at the time, so treat that as a dated observation.
 
 **Runs split by a single sub-threshold row are now merged back.** Raw-profile
 detection, the fix directly above, is unsafe on its own and shipping it alone was a
@@ -191,22 +191,22 @@ pipeline, same corpus, one function swapped:
 Band count *rises* while run count falls, because a merged strip-plus-body clears
 `min_line_h` where the strip alone did not. 34 pages gained characters and **none
 lost any**, so the garbage figure is not bought by discarding text. Garbage is a
-band over half Mon digits and longer than 3 characters — the definition `mon_OCR`
-`docs/AUDIT-2026-08-B.md` gives in **F-70**, not F-69. The length clause keeps
+band over half Mon digits and longer than 3 characters — the corrected definition
+from the upstream segmentation measurements. The length clause keeps
 correctly-read page numbers out of the count.
 
 **These numbers are smaller than the sibling figures** usually quoted beside this
 change — 1.2% garbage for shipping nothing, 26.6% for raw detection alone, 0.7% for
-the complete pair. That pair belongs to `se-brain rules/standards/testing.md` §24,
-which draws it from F-69 **and** F-70 together over 24 scanned book pages plus three
-photographs, measured through a sibling CLI. **It is not in F-69**, which is status
-"reported, not fixed" and carries no after-merge measurement at all; an earlier draft
-of this entry and of the source comment cited it there, which was wrong.
+the complete pair. Those figures come from a separate three-way A/B over 24 scanned
+book pages plus three photographs, measured through a sibling CLI. **They are not from
+the 145-page raw-detection measurement**, which carries no after-merge figure at all;
+an earlier draft of this entry and of the source comment attributed it there, which
+was wrong.
 
 The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
-wide; the 145-page image scan F-69 measured is not in this workspace. The mechanism
-and the direction are the same on both metrics. Do not carry the sibling figures into
-this package's source.
+wide; the 145-page image scan the upstream raw-detection measurement used is not
+available here. The mechanism and the direction are the same on both metrics. Do
+not carry the sibling figures into this package's source.
 
 The concrete case, on page 1 of `party_mission.pdf` at 300 DPI: the smoothed max was
 84,100, so the threshold was `0.02 * 84,100 = 1,682`, or 6.6 ink pixels a row. Rows
@@ -357,8 +357,8 @@ the ink by one. Ink is only *lost* at `pad_x == 0`, which needs a caller passing
 default 10 forces `pad_x >= 1` and the last ink column is always inside. The
 defaults cannot reach the data-loss path.
 
-Unfixed on purpose. The same arithmetic is in `monocr_onnx` and in the mon_OCR
-reference, whose `pad_x` floor of an absolute 10 px means no setting there can lose
+Unfixed on purpose. The same arithmetic is in `monocr_onnx` and in the reference
+segmenter, whose `pad_x` floor of an absolute 10 px means no setting there can lose
 ink. Correcting it in one place shifts every crop by a pixel and breaks parity with
 two published packages and the corpus every page-level CER in this ecosystem was
 measured against — an owner decision, not a cleanup. The reachability, the
@@ -369,7 +369,7 @@ value is measured rather than correct.
 ### Lineage, stated where it is read
 
 `LineSegmenter`'s docstring claimed step with `monocr_onnx` and said nothing about
-the mon_OCR reference. The first half checks out: every constant is equal, adaptive
+the reference segmenter. The first half checks out: every constant is equal, adaptive
 block 25 and C 10, 0.02, 10, 5, and pads of 0.20 and 0.15. The silence was the
 costly half. This segmenter thresholds at 0.02 of the profile **max** where the
 reference takes 0.12 of the **mean of its non-zero rows** — a different algorithm at
@@ -389,7 +389,7 @@ only one direction fails loudly — `crop, bbox = line` against a dict unpacks i
 two keys and feeds the model the string `'img'`. Then `smooth_kernel` against
 `smooth_window`, PIL-only input, and no `tile_line`/`cut_column`.
 
-Four more divergences from the mon_OCR reference are now recorded, all
+Four more divergences from the reference segmenter are now recorded, all
 previously unlisted, and the first is the same class as the max-versus-mean
 one. `pad_x` here is a
 fraction of the line HEIGHT; the reference takes a fraction of the line WIDTH

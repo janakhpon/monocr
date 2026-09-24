@@ -144,27 +144,27 @@ def smooth_profile(raw_hist, window):
 #
 # 209 run boundaries closed; band count RISES because a merged strip-plus-body
 # clears `min_line_h` where the strip alone did not. Garbage is a band over half
-# Mon digits and longer than 3 characters, which is the metric `mon_OCR`
-# `docs/AUDIT-2026-08-B.md` defines in F-70, not F-69 -- the length clause keeps
+# Mon digits and longer than 3 characters, the corrected definition from the
+# upstream segmentation measurements -- the length clause keeps
 # correctly-read page numbers out of the count. 34 pages gained characters and
 # NONE lost any, so the garbage number is not bought by dropping text.
 #
 # These are this module's numbers and they are SMALLER than the sibling figures
 # they are often quoted beside -- 1.2% garbage for shipping nothing, 26.6% for raw
 # detection alone, 0.7% for the complete pair. Do not substitute those, and do not
-# cite them to F-69: that pair is in `se-brain rules/standards/testing.md` §24,
-# which draws it from F-69 AND F-70 together over 24 scanned book pages plus three
-# photographs, measured through a sibling CLI. F-69 itself is status "reported, not
-# fixed" and carries no after-merge measurement at all. Checked 2026-08-28.
+# attribute them to the 145-page raw-detection measurement: they come from a
+# separate three-way A/B over 24 scanned book pages plus three photographs,
+# measured through a sibling CLI. The 145-page measurement carries no after-merge
+# figure at all. Checked 2026-08-28.
 #
 # The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean
-# and wide; the 145-page image scan F-69 measured is not in this workspace. The
-# mechanism is the same and the direction is the same on both metrics.
+# and wide; the 145-page scan the upstream raw-detection measurement used is not
+# available here. The mechanism and the direction are the same on both metrics.
 #
 # A 1-row gap holding ink is not a line boundary at any resolution. That much is
 # the reference's rule, but be precise about WHAT is ported from where, because an
 # earlier version of this comment credited all of it to the reference and that is
-# wrong. Read 2026-08-28 in `mon_OCR/src/monocr/segmenter.py` step 8, the
+# wrong. Read 2026-08-28 in the reference segmenter's step 8, the
 # reference's merge has exactly TWO clauses -- gap <= `_MIN_GAP_MERGE` AND the raw
 # minimum in the gap above zero -- with no fragment clause, no page median and no
 # ceiling. It argues explicitly against crossing an empty gap: "If in doubt, we
@@ -189,7 +189,7 @@ def smooth_profile(raw_hist, window):
 # `0.02 * max(smoothed)`:
 #
 #     Rust binding, 0.05 * mean(non-zero)     0.55x mean, 0.49x median
-#     mon_OCR reference, 0.12 * mean          1.31x mean, 1.18x median
+#     reference segmenter, 0.12 * mean        1.31x mean, 1.18x median
 #
 # So this module's threshold is ROUGHLY BETWEEN THEM -- about twice the Rust
 # binding's and about three quarters of the reference's. A higher threshold makes
@@ -337,7 +337,7 @@ class LineSegmenter:
     with the same RULE_SPAN and RULE_MAX_INK_SHARE.
 
     Divergences from the port that are not constants, as read on 2026-08-28 in
-    a tree another agent was editing. The one that changes what the two return
+    a working tree under edit. The one that changes what the two return
     for the same page -- which profile the boundaries come off -- is newest and
     has its own paragraph below. These four change how a caller talks to them,
     worst first. Treat the list as what was observed, not as closed.
@@ -357,7 +357,7 @@ class LineSegmenter:
     module has neither, so an over-wide line is squeezed to fit instead of being
     split -- see ``ocr._predict_single_line``.
 
-    It is NOT a port of the mon_OCR reference, and the distance is wider than
+    It is NOT a port of the reference segmenter, and the distance is wider than
     tuning. The gap threshold here is a fraction of the profile MAX; the
     reference takes a fraction of the MEAN of its non-zero rows. Max and mean
     part company as lines are added to a page, so no choice of ratio reconciles
@@ -375,8 +375,8 @@ class LineSegmenter:
     The crop geometry parts company the same way, and this list omitted it until
     2026-08-28. ``_extract_line`` here pads horizontally by
     ``int(h_raw * 0.15)``, a fraction of the line's HEIGHT. Read in
-    ``mon_OCR/src/monocr/segmenter.py`` on 2026-08-28, in a tree another agent
-    was editing at the time, so re-read it rather than trusting this line:
+    the reference segmenter on 2026-08-28, in a working tree that was being
+    edited at the time, so re-read it rather than trusting this line:
     ``pad_x = max(self.pad_x_floor_px, int(np.ceil(coreW * self.pad_x_factor)))``
     -- a fraction of the line's WIDTH, 0.05 of it, floored at an absolute 10 px.
     Both are constructor arguments there, so those are defaults a caller can
@@ -413,7 +413,7 @@ class LineSegmenter:
     detection to the RAW profile while still calibrating on the smoothed one.
     Read on 2026-08-28, this module was the last of six implementations still
     detecting on the smoothed profile: the port's Python, JS, Go and Rust
-    bindings and the mon_OCR reference all read boundaries off the raw one. As of
+    bindings and the reference segmenter all read boundaries off the raw one. As of
     2026-08-28 ``segment`` does the same: raw for boundaries, smoothed for the
     threshold. The measurement behind it is in
     ``segment`` step 5 and is this module's own, taken at this module's
@@ -673,15 +673,15 @@ class LineSegmenter:
 
         It is not fixed here because it is not this module's alone. The same
         arithmetic is in ``monocr_onnx.segmenter.LineSegmenter._extract_line``
-        (read 2026-08-28 in a tree another agent was editing: ``x_start,
+        (read 2026-08-28 in a working tree under edit: ``x_start,
         x_end`` at line 208, ``x2`` at 217, ``crop`` at 226) and in the
-        reference ``mon_OCR/src/monocr/segmenter.py`` at HEAD 8f645ffa on
+        reference segmenter as read on
         2026-08-28 (``x0, x1`` at 841, ``coreW = x1 - x0`` at 843, ``xb`` at
         853, ``crop`` at 856), whose ``coreW`` carries the same one-column
         understatement. In the reference no ink can be lost at any DEFAULT: its
         ``pad_x`` is floored at ``_PAD_X_FLOOR_PX``, 10 px. Not "at any setting"
         -- ``pad_x_floor_px`` is a constructor argument there too
-        (``segmenter.py:369, 377``), so ``pad_x_floor_px=0`` plus a one-column
+        (its lines 369 and 377), so ``pad_x_floor_px=0`` plus a one-column
         line reaches ``pad_x == 0`` in the reference as well. This class's own
         docstring already says both values are caller-overridable there.
 

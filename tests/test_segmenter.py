@@ -123,7 +123,7 @@ def test_a_page_cannot_hold_a_line_taller_than_itself():
     `test_the_gap_threshold_is_calibrated_on_the_smoothed_profile`.
 
     Not a synthetic-only case. `smooth_kernel` is a constructor argument, so at
-    the mon_OCR reference's 15 any crop under 15 rows tall is in range.
+    the reference segmenter's 15 any crop under 15 rows tall is in range.
     """
     strip = np.full((3, 40), 255, dtype=np.uint8)
     strip[0, :] = 0
@@ -231,7 +231,7 @@ def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
     ink spans 13 columns, 8 to 20 inclusive, and `_extract_line` mixes an
     inclusive `x_end` with PIL's exclusive crop, so the last ink column is
     dropped at zero pad. That off-by-one is shared with `monocr_onnx` and with
-    the mon_OCR reference and is deliberately unfixed — see the
+    the reference segmenter and is deliberately unfixed — see the
     `_extract_line` docstring. This pin records what the code does; it does not
     bless the 12.
     """
@@ -627,11 +627,11 @@ def test_a_fragment_is_judged_against_the_page_median_not_its_neighbour():
     line is 40. Against the neighbour the 24-row run is exactly half of 48 and
     merges; against the page median it is over half a typical line, so it is a
     short line — a page number or a heading tail — and stays its own band. That
-    short lines are real content is F-69's point 2: of 990 bands under 0.6x the
-    page median, 285 were 3 characters or fewer and 85% of THOSE were pure digits,
-    read correctly as page numbers. So the class exists; note that F-69 measures
-    the ≤3-character slice of it, which this package's own garbage metric already
-    excludes.
+    short lines are real content was measured upstream over a 145-page scan: of 990
+    bands under 0.6x the page median, 285 were 3 characters or fewer and 85% of
+    THOSE were pure digits, read correctly as page numbers. So the class exists;
+    note that the measurement counts the ≤3-character slice, which this
+    package's own garbage metric already excludes.
 
     The ceiling cannot catch this one: 48 + 2 + 24 is 74, inside a ceiling of 80.
     """
@@ -800,9 +800,9 @@ def test_a_diacritic_strip_is_returned_joined_to_its_line():
 
     In `monocr-onnx` a mutation deleting the `merge_runs` CALL survived every
     helper test, because they all call the helper directly and the call site was
-    unguarded. That is the rule `se-brain rules/standards/testing.md` §20 gives as
-    a WARNING, "Mutate the call site, not only the helper" — §23 is a different
-    section, about a test that re-types the code.
+    unguarded. That is the general testing rule "Mutate the call site, not only
+    the helper" -- distinct from the rule about a test that re-types the code,
+    which this is not.
 
     Geometry is `monocr-onnx`'s fixture shape rather than a measurement of this
     package: a strip of upper marks, a blank gap, then a body about twice as tall.
