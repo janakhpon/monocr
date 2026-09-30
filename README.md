@@ -116,7 +116,7 @@ and a new model revision.
   does not ship. If the change is still worth keeping, it goes behind an option that is off by
   default.
 - **Put the result in the pull request:** the inputs, both arms' numbers, any per-bucket split (for
-  example by line width), the exact command, and what the test doesn't cover.
+  example by line width), the exact command, and what the comparison doesn't cover.
 
 ### Release Workflow
 
