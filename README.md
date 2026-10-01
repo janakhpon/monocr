@@ -2,52 +2,46 @@
 
 [![PyPI](https://img.shields.io/pypi/v/monocr.svg)](https://pypi.org/project/monocr/)
 
-Optical Character Recognition for Mon (mnw) text.
+Optical character recognition for Mon (mnw) text: a Python package that runs
+locally on ONNX Runtime.
 
 Mon is classified as **vulnerable** in UNESCO's Atlas of the World's Languages
-in Danger. General OCR covers its *script* but not its *language*, and the
-difference is the reason this package exists.
+in Danger. It is written in the Mon–Burmese script, so a Burmese recogniser will
+read a Mon page and return text, but not the right text. Ten of the 276
+characters this model emits are named for Mon in Unicode because Burmese does
+not use them: `U+1028` MON E, `U+1033` MON II, `U+1034` MON O, and
+`U+105A`–`U+1060` (MON NGA, JHA, BBA, BBE, and the MON MEDIAL NA, MA and LA
+signs). A Burmese-trained model has no output class for any of them, so it emits
+the nearest Burmese glyph instead: fluent-looking Burmese-Mon hybrid text with
+nothing raised, wrong in a way that is hard to notice unless you read Mon.
 
-Mon is written in the Mon–Burmese script, so a Burmese recogniser will read a
-Mon page and return text. Google Cloud Vision lists Burmese (`my`, `Mymr`) as an
-experimental OCR language and has no entry for Mon; Cloud Translation and
-Google Translate's 2024 expansion both ship Burmese and not Mon; Tesseract's
-`Myanmar.traineddata` is a script model, which by design covers languages it was
-never trained on.
+## What to expect
 
-What that misses is specific and checkable. Ten of the 276 characters this model
-emits are named for Mon in Unicode precisely because Burmese does not use them:
-`U+1028` MON E, `U+1033` MON II, `U+1034` MON O, and `U+105A`–`U+1060` (MON NGA,
-JHA, BBA, BBE, and the MON MEDIAL NA, MA and LA signs). A Burmese-trained model
-has no output class for any of them, so it emits the nearest Burmese glyph
-instead. The result is fluent-looking Burmese-Mon hybrid text with nothing
-raised — wrong in a way that is hard to notice unless you read Mon.
+- It reads printed Mon: rendered pages and scans of them. Handwriting is out of
+  scope.
+- The held-out result and, more importantly, the four things it does not cover
+  are on the [model card](https://huggingface.co/janakhpon/monocr).
+- The model is pinned to revision `d3d9d5e` of
+  [janakhpon/monocr](https://huggingface.co/janakhpon/monocr)
+  (`config.HF_REVISION`) and downloaded on first use, so an upload to `main`
+  cannot change what an installed copy reads.
 
-This package is a Mon recogniser you can `pip install`, running locally on ONNX
-Runtime. It reads printed Mon: rendered pages and scans of them. Handwriting is
-out of scope. The held-out result and, more importantly, the four things it does
-not cover are on the [model card](https://huggingface.co/janakhpon/monocr).
+## Install
 
-## Installation
+Requires Python 3.11+.
 
 ```bash
 pip install monocr
-```
-
-or, in a uv project:
-
-```bash
+# or, in a uv project
 uv add monocr
 ```
 
-## Quick Start
-
-### Python Usage
+## Quick start
 
 ```python
 from monocr import MonOCR
 
-# Initialize. Downloads the model pinned in config.HF_REVISION on first use.
+# Downloads the pinned model on first use.
 model = MonOCR()
 
 # A page: segmented into lines, joined with newlines
@@ -63,35 +57,43 @@ print(f"Confidence: {result['confidence']:.2%}")
 ```
 
 `predict` and `read_text` are aliases for `predict_page`. If you are passing
-single-line crops, call `predict_line` — it is the only path that cannot split
+single-line crops, call `predict_line`; it is the only path that cannot split
 one line into several.
 
-### Examples
+The confidence is the model's own mean per-step probability, averaged over
+lines. It is not a measured accuracy.
 
-See the [`examples/`](examples/) folder to learn more.
-
-- **`examples/run_ocr.py`**: A complete script that can process a folder of images or read a full PDF book.
-- Or a demo notebook to play around with the package [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb)
-
-### CLI Usage
-
-You can also use the command line interface:
+## CLI
 
 ```bash
-# Process a single image
-monocr read image.png
-
-# Process a folder of images
-monocr batch folder/path
-
-# Manually download the model
-monocr download
+monocr read image.png        # add --confidence for the score
+monocr batch folder/path     # every .png, .jpg and .jpeg in the folder
+monocr download              # fetch the model ahead of time
 ```
 
-## Resources
+## Examples
 
-- [monocr on pypi](https://pypi.org/project/monocr/)
-- [monocr on hugging face](https://huggingface.co/janakhpon/monocr)
+- [`examples/run_ocr.py`](examples/run_ocr.py) processes a folder of images or a
+  full PDF book. PDFs need `pip install "monocr[examples]"` and poppler.
+- A demo notebook:
+  [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb).
+
+## How it works
+
+The page is converted to grayscale, inverted if it is light text on a dark
+background, and segmented into lines with a horizontal projection profile. Each
+line is resized to the model's input height, padded to 1024 pixels wide, read by
+the ONNX graph and decoded greedily against the charset published beside the
+weights at the same revision. Loading refuses a model and charset whose sizes
+disagree, because that pair would decode every character wrongly without raising.
+
+A line wider than the model window is squeezed to fit rather than split into
+tiles.
+
+## Related
+
+- [monocr-onnx](https://github.com/MonDevHub/monocr-onnx) — the same model with
+  Python, JavaScript, Go and Rust bindings.
 - [Changelog](CHANGELOG.md)
 
 ## Development
@@ -118,7 +120,7 @@ and a new model revision.
 - **Put the result in the pull request:** the inputs, both arms' numbers, any per-bucket split (for
   example by line width), the exact command, and what the comparison doesn't cover.
 
-### Release Workflow
+### Releasing
 
 `pyproject.toml` holds the only version in the tree; `monocr.__version__` reads
 it back from the installed metadata. The tag has to match it, and the release
@@ -131,18 +133,9 @@ git tag "v$(uv version --short)"
 git push origin HEAD --tags
 ```
 
-Two things this section got wrong before, both caught by running it:
-
-- It showed `git tag v2.2.3` beside a version of `2.2.0`. Nothing would have
-  stopped that going out; `release.yml` now compares them.
-- These four commands alone used to leave a release broken. `__version__` was a
-  separate literal in `__init__.py`, `uv version --bump` does not touch it, and
-  the test that noticed ran *after* the tag was already pushed. The version is
-  derived now, so the commands above are the whole procedure.
-
 Publishing runs from the tag, through GitHub Actions, using PyPI trusted
 publishing. It installs from the lockfile and runs the test suite first.
 
 ## License
 
-MIT - do whatever you want with it.
+MIT
