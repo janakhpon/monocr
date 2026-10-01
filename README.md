@@ -73,8 +73,9 @@ monocr download              # fetch the model ahead of time
 
 ## Examples
 
-- [`examples/run_ocr.py`](examples/run_ocr.py) processes a folder of images or a
-  full PDF book. PDFs need `pip install "monocr[examples]"` and poppler.
+- [`examples/run_ocr.py`](https://github.com/janakhpon/monocr/blob/main/examples/run_ocr.py)
+  reads every image and PDF in `examples/images/` of a clone of this repository;
+  it takes no arguments. PDFs need `pip install "monocr[examples]"` and poppler.
 - A demo notebook:
   [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb).
 
@@ -94,7 +95,7 @@ tiles.
 
 - [monocr-onnx](https://github.com/MonDevHub/monocr-onnx) — the same model with
   Python, JavaScript, Go and Rust bindings.
-- [Changelog](CHANGELOG.md)
+- [Changelog](https://github.com/janakhpon/monocr/blob/main/CHANGELOG.md)
 
 ## Development
 
