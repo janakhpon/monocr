@@ -12,6 +12,14 @@ on:
   push:
   pull_request:
 
+# Declared, where this file previously declared nothing and inherited the
+# repository default. That default is a repository setting, not a property of
+# this file: set to read-write, every job here would hold a GITHUB_TOKEN that
+# can push commits and move tags, on a workflow that runs on `push` from any
+# branch. Every job here checks out, builds, tests or scans; none writes.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -22,6 +30,8 @@ jobs:
         python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
@@ -49,6 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Refuse tracked model weights
         run: |
           set -euo pipefail
@@ -71,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: Build a wheel
@@ -98,3 +112,82 @@ jobs:
             python -c "import monocr; print(\"imported\", monocr.__version__)"
             python -c "import cv2; print(\"cv2 ok\")"
           '
+
+  # Lints every workflow in this repository for the defects that turn CI into
+  # a way in: unpinned actions, credentials persisted into the workspace,
+  # caches restored into publish jobs, template injection, over-broad tokens.
+  # release.yml holds `id-token: write` for PyPI, so a defect there is a
+  # defect in what gets published under this project's name.
+  #
+  # Scans the repository root (the action's default input, `.`), not only
+  # .github/workflows, so the CI gate and a local run cover the same files.
+  # Reproduce locally with:  uvx zizmor@1.30.1 --offline .
+  # The local run skips the online audits; this job runs them.
+  #
+  # `advanced-security: false` because uploading SARIF needs
+  # `security-events: write`, and results as annotations are readable by anyone
+  # who can see the run — the job log is not.
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the workflows
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.1
+          advanced-security: false
+          annotations: true
+
+  # Scans the full git history for committed credentials, not just the tree: a
+  # secret removed in a later commit is still in every clone. fetch-depth 0 is
+  # what makes the history available to scan.
+  #
+  # The gitleaks binary, not gitleaks-action: the action needs a paid licence
+  # once a repository is organization-owned, and the binary needs no token at
+  # all. Pinned to a version AND the SHA-256 of its
+  # release tarball, from the release's gitleaks_8.30.1_checksums.txt, so the
+  # URL cannot serve something else on a later day. TO BUMP: take the
+  # linux_x64 line from the new release's checksums file and verify it against
+  # a download before changing either value.
+  #
+  # `--redact` keeps any secret it finds out of the log. A finding is
+  # annotated as file and line only.
+  secrets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "${RUNNER_TEMP}/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/gitleaks.tar.gz" | sha256sum -c -
+          tar -xz -C "${RUNNER_TEMP}" -f "${RUNNER_TEMP}/gitleaks.tar.gz" gitleaks
+          "${RUNNER_TEMP}/gitleaks" version
+      - name: Scan the full history for secrets
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/gitleaks.json"
+          set +e
+          "${RUNNER_TEMP}/gitleaks" git --redact --verbose --no-banner --no-color \
+            --report-format json --report-path "$report" .
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$report" ]; then
+              jq -r '.[] | "::error file=\(.File),line=\(.StartLine),title=gitleaks: \(.RuleID)::commit \(.Commit[0:12])"' "$report"
+            fi
+            exit "$status"
+          fi
