@@ -221,7 +221,7 @@ def test_a_short_page_pads_its_crop_from_the_line_not_the_smoothing_window():
     * Unbounded scan on the smoothed profile — the original bug. The run
       terminated at profile index 14, so `pad_x` was `int(14 * 0.15) == 2` and
       the crop came back (6, 0, 16, 3).
-    * Bounded scan on the smoothed profile — the 2026-08-28 morning fix. The run
+    * Bounded scan on the smoothed profile — the first 2026-08-28 fix. The run
       was clipped at `h_img`, giving (8, 0, 12, 3).
     * Scan on the RAW profile — current. The ink is in row 0 only, so the run is
       one row long and the crop is (8, 0, 12, 1). Every number here now comes
