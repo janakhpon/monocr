@@ -65,13 +65,14 @@ The confidence is the mean top-class probability over every output step of a
 line, blanks and padding included, averaged over the lines that produced text
 (0.0 if none did). Padding scores close to 1, so short lines score higher, and it
 stays high on out-of-domain input such as photographs. It is not a measured
-accuracy, and not a usable filter.
+accuracy, and not a usable filter across lines of different length or on
+out-of-domain input.
 
 ## CLI
 
 ```bash
 monocr read image.png        # add --confidence for the score
-monocr batch folder/path     # top-level *.png, *.jpg, *.jpeg, lowercase only
+monocr batch folder/path     # top-level *.png, *.jpg, *.jpeg (lowercase only on macOS and Linux)
 monocr download              # fetch the model ahead of time
 ```
 
@@ -85,7 +86,7 @@ Both `read` and `batch` segment each image as a page. For line crops, call
   it takes no arguments. PDFs need `pip install "monocr[examples]"` and poppler.
 - A demo notebook,
   [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb),
-  written for monocr 0.1.17, the earlier PyTorch release, not this one.
+  written for monocr 0.1.17, an earlier PyTorch release, not this one.
 
 ## How it works
 
@@ -93,7 +94,7 @@ The page is converted to grayscale, inverted if it is light text on a dark
 background, and segmented into lines with a horizontal projection profile. Each
 line is resized to the model's input height, padded to 1024 pixels wide, read by
 the ONNX graph and decoded greedily against the charset published beside the
-weights at the same revision, or, if that download fails, against the copy
+weights at the same revision, or, when it was not downloaded, against the copy
 bundled with the package, which is byte-identical. Loading refuses a model and
 charset whose sizes disagree, because that pair would decode to the wrong
 characters without raising.
