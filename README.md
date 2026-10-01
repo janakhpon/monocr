@@ -17,8 +17,9 @@ nothing raised, wrong in a way that is hard to notice unless you read Mon.
 
 ## What to expect
 
-- It reads printed Mon: rendered pages and scans of them. Handwriting is out of
-  scope.
+- It reads printed Mon. Accuracy is measured on rendered lines only; scans are
+  unmeasured, and camera photographs are out of domain and fail with high
+  confidence. Handwriting is out of scope.
 - The held-out result and, more importantly, the four things it does not cover
   are on the [model card](https://huggingface.co/janakhpon/monocr).
 - The model is pinned to revision `d3d9d5e` of
@@ -60,24 +61,31 @@ print(f"Confidence: {result['confidence']:.2%}")
 single-line crops, call `predict_line`; it is the only path that cannot split
 one line into several.
 
-The confidence is the model's own mean per-step probability, averaged over
-lines. It is not a measured accuracy.
+The confidence is the mean top-class probability over every output step of a
+line, blanks and padding included, averaged over the lines that produced text
+(0.0 if none did). Padding scores close to 1, so short lines score higher, and it
+stays high on out-of-domain input such as photographs. It is not a measured
+accuracy, and not a usable filter.
 
 ## CLI
 
 ```bash
 monocr read image.png        # add --confidence for the score
-monocr batch folder/path     # every .png, .jpg and .jpeg in the folder
+monocr batch folder/path     # top-level *.png, *.jpg, *.jpeg, lowercase only
 monocr download              # fetch the model ahead of time
 ```
+
+Both `read` and `batch` segment each image as a page. For line crops, call
+`predict_line` from Python.
 
 ## Examples
 
 - [`examples/run_ocr.py`](https://github.com/janakhpon/monocr/blob/main/examples/run_ocr.py)
   reads every image and PDF in `examples/images/` of a clone of this repository;
   it takes no arguments. PDFs need `pip install "monocr[examples]"` and poppler.
-- A demo notebook:
-  [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb).
+- A demo notebook,
+  [`notebooks/demo.ipynb`](https://github.com/janakhpon/preview_monocr/blob/main/notebooks/demo.ipynb),
+  written for monocr 0.1.17, the earlier PyTorch release, not this one.
 
 ## How it works
 
@@ -85,16 +93,22 @@ The page is converted to grayscale, inverted if it is light text on a dark
 background, and segmented into lines with a horizontal projection profile. Each
 line is resized to the model's input height, padded to 1024 pixels wide, read by
 the ONNX graph and decoded greedily against the charset published beside the
-weights at the same revision. Loading refuses a model and charset whose sizes
-disagree, because that pair would decode every character wrongly without raising.
+weights at the same revision, or, if that download fails, against the copy
+bundled with the package, which is byte-identical. Loading refuses a model and
+charset whose sizes disagree, because that pair would decode to the wrong
+characters without raising.
 
-A line wider than the model window is squeezed to fit rather than split into
-tiles.
+A line wider than the model window (1024 by 160 pixels, so 6.4 times as wide as
+it is tall) is squeezed to fit rather than split into tiles. The model card
+measures squeezing as better up to about twice that width, level at three times,
+and worse from four; for longer lines, cut them at word gaps and call
+`predict_line` on each piece.
 
 ## Related
 
 - [monocr-onnx](https://github.com/MonDevHub/monocr-onnx) — the same model with
-  Python, JavaScript, Go and Rust bindings.
+  Python (`pip install monocr-onnx`), JavaScript, Go and Rust bindings. Its line
+  segmenters differ from this package's, so page output can differ.
 - [Changelog](https://github.com/janakhpon/monocr/blob/main/CHANGELOG.md)
 
 ## Development
