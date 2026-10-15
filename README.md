@@ -1,5 +1,10 @@
 # Mon OCR
 
+Part of the Mon OCR toolchain; see [how the pieces fit](https://github.com/MonDevHub).
+This is a separate Python-only package with its own line segmentation, distinct
+from the [`monocr-onnx`](https://github.com/MonDevHub/monocr-onnx) SDK and the
+[apps](https://github.com/MonDevHub/monocr).
+
 [![PyPI](https://img.shields.io/pypi/v/monocr.svg)](https://pypi.org/project/monocr/)
 
 Optical Character Recognition for Mon (mnw) text.
