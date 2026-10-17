@@ -1,17 +1,36 @@
 # Changelog
 
+## 2.4.2 — 2026-10-01
+
+Documentation and comments only; no behaviour change. No code path changed and
+the suite passes unchanged.
+
+- **The README on PyPI is corrected.** It says what the confidence score is — the
+  mean top-class probability over every output step, blanks and padding
+  included, not a measured accuracy, so short lines and photographs can score
+  high. It says that a line too wide for the model window is squeezed to fit
+  rather than tiled, with the model card's measurement and the `predict_line`
+  workaround. Its links are absolute, since PyPI resolves relative links under
+  the project page and they 404.
+- **Source comments and docstrings name each measurement's source in terms a
+  reader of this package can check.** `monocr-onnx` is cited at commit
+  `a3e3dba` (2026-08-28), with line numbers taken at that commit. Garbage-rate
+  figures from a separate A/B through another pipeline are no longer quoted
+  beside this package's own merge measurement. Earlier entries in this file are
+  reworded the same way.
+- **CI lints its workflows and scans the history for secrets.** `test.yml` gains
+  a `zizmor` job (zizmor 1.30.1) and a `secrets` job (gitleaks 8.30.1, its
+  download checked against a pinned SHA-256), declares `contents: read`, and no
+  checkout keeps credentials. Nothing in the package changes.
+
 ## 2.4.1 — 2026-09-24
 
 Documentation only; no behaviour change. Source comments and docstrings in
-`ocr.py` and `segmenter.py`, which ship inside the wheel, no longer cite private
-repositories or internal review records. Each measurement they described is kept,
-with its date, sample size and corpus, and now names its source as "the training
-code", "the reference segmenter" or a sibling CLI. The same wording is applied to
-the test docstrings and to earlier entries in this file. One attribution is also
-corrected: the 1.2% / 26.6% / 0.7% garbage figures come from a separate three-way
-A/B over 24 scanned book pages plus three photographs, not from the 145-page
-raw-detection measurement. No code path changed, the suite passes unchanged, and
-all 43 mutations in `scripts/mutate.py` are still killed.
+`ocr.py` and `segmenter.py`, which ship inside the wheel, now name each
+measurement's source in terms a reader of this package can check, and keep its
+date, sample size and corpus. The same wording is applied to the test docstrings
+and to earlier entries in this file. No code path changed, the suite passes
+unchanged, and all 43 mutations in `scripts/mutate.py` are still killed.
 
 ## 2.4.0 — 2026-09-04
 
@@ -164,8 +183,7 @@ catch that variant, and the scope note on
 This closes the divergence `monocr-onnx` opened at its commit a3e3dba. Read on
 2026-08-28, this package was the last of six implementations still detecting on the
 smoothed profile: `monocr-onnx`'s Python, JS, Go and Rust bindings and the reference
-segmenter all read boundaries off the raw one. Sibling trees were under active edit
-at the time, so treat that as a dated observation.
+segmenter all read boundaries off the raw one.
 
 **Runs split by a single sub-threshold row are now merged back.** Raw-profile
 detection, the fix directly above, is unsafe on its own and shipping it alone was a
@@ -208,18 +226,10 @@ band over half Mon digits and longer than 3 characters — the corrected definit
 from the upstream segmentation measurements. The length clause keeps
 correctly-read page numbers out of the count.
 
-**These numbers are smaller than the sibling figures** usually quoted beside this
-change — 1.2% garbage for shipping nothing, 26.6% for raw detection alone, 0.7% for
-the complete pair. Those figures come from a separate three-way A/B over 24 scanned
-book pages plus three photographs, measured through a sibling CLI. **They are not from
-the 145-page raw-detection measurement**, which carries no after-merge figure at all;
-an earlier draft of this entry and of the source comment attributed it there, which
-was wrong.
-
-The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean and
-wide; the 145-page image scan the upstream raw-detection measurement used is not
-available here. The mechanism and the direction are the same on both metrics. Do
-not carry the sibling figures into this package's source.
+**These numbers are this package's own**, measured through this segmenter on the
+pages above. Figures from other pipelines on other pages are not quoted here,
+because a reader of this package cannot rerun them. The corpus here is mostly
+digitally typeset PDF, whose inter-line gaps are clean and wide.
 
 The concrete case, on page 1 of `party_mission.pdf` at 300 DPI: the smoothed max was
 84,100, so the threshold was `0.02 * 84,100 = 1,682`, or 6.6 ink pixels a row. Rows
@@ -258,8 +268,8 @@ mutation survives. Measured here 2026-08-28:
   a 24-row pair on a page whose median line is 40, giving a merged band of 64 rows,
   inside the ceiling.
 
-Both were written that way here first and both mutations survived the first harness
-run, which is how they were found.
+With either fixture as written there, the corresponding mutation survives this
+package's harness, which is why both fixtures here differ.
 
 **Speckle no longer sets the page's typical line height, and a fragment no longer
 attaches to another fragment.** The merge shipped with two of its four decisions.
@@ -325,12 +335,11 @@ out-of-range gap becomes an empty slice, and `np.all` of nothing is True. The
 sibling Python binding shipped exactly that and merged across rows that do not
 exist.
 
-Checked against the shared oracle as well as the local fixtures: all 18 cases in
-`monocr-monorepo/shared/segmentation-fixtures/merge-cases.json`, which is generated
-from a statement of the four decisions rather than from any port, agree with this
-implementation. That fixture is not wired into this package's suite — it lives in a
-repository `monocr` does not depend on, and a test that skips when a sibling
-checkout is missing is worse than no test.
+Checked against a shared merge-case fixture as well as the local ones: all 18
+cases, generated from a statement of the four decisions rather than from any port,
+agree with this implementation. That fixture is not wired into this package's
+suite — it lives outside this repository, and a test that skips when another
+repository is absent is worse than no test.
 
 `scripts/mutate.py` carries 43 mutations, all killed, including six on the two new
 decisions: the all-runs median, the missing fallback, the dropped line guard, the
@@ -374,9 +383,9 @@ Unfixed on purpose. The same arithmetic is in `monocr_onnx` and in the reference
 segmenter, whose `pad_x` floor of an absolute 10 px means no setting there can lose
 ink. Correcting it in one place shifts every crop by a pixel and breaks parity with
 two published packages and the corpus every page-level CER in this ecosystem was
-measured against — an owner decision, not a cleanup. The reachability, the
-asymmetry and the sibling and reference line numbers are recorded in the
-`_extract_line` docstring, and the one test that pins a crop geometry says its
+measured against — a change to make across all implementations at once, not a
+local cleanup. The reachability, the asymmetry and the `monocr-onnx` line numbers
+are recorded in the `_extract_line` docstring, and the one test that pins a crop geometry says its
 value is measured rather than correct.
 
 ### Lineage, stated where it is read

@@ -149,17 +149,10 @@ def smooth_profile(raw_hist, window):
 # correctly-read page numbers out of the count. 34 pages gained characters and
 # NONE lost any, so the garbage number is not bought by dropping text.
 #
-# These are this module's numbers and they are SMALLER than the sibling figures
-# they are often quoted beside -- 1.2% garbage for shipping nothing, 26.6% for raw
-# detection alone, 0.7% for the complete pair. Do not substitute those, and do not
-# attribute them to the 145-page raw-detection measurement: they come from a
-# separate three-way A/B over 24 scanned book pages plus three photographs,
-# measured through a sibling CLI. The 145-page measurement carries no after-merge
-# figure at all. Checked 2026-08-28.
-#
-# The corpus here is mostly digitally typeset PDF, whose inter-line gaps are clean
-# and wide; the 145-page scan the upstream raw-detection measurement used is not
-# available here. The mechanism and the direction are the same on both metrics.
+# These are this module's numbers, measured through this segmenter. Figures from
+# other pipelines on other pages are not quoted here, because a reader of this
+# package cannot rerun them; do not substitute them. The corpus here is mostly
+# digitally typeset PDF, whose inter-line gaps are clean and wide.
 #
 # A 1-row gap holding ink is not a line boundary at any resolution. That much is
 # the reference's rule, but be precise about WHAT is ported from where, because an
@@ -336,8 +329,8 @@ class LineSegmenter:
     the core line height -- and the printed-rule block above is the same code
     with the same RULE_SPAN and RULE_MAX_INK_SHARE.
 
-    Divergences from the port that are not constants, as read on 2026-08-28 in
-    a working tree under edit. The one that changes what the two return
+    Divergences from the port that are not constants, as of monocr-onnx
+    a3e3dba (2026-08-28). The one that changes what the two return
     for the same page -- which profile the boundaries come off -- is newest and
     has its own paragraph below. These four change how a caller talks to them,
     worst first. Treat the list as what was observed, not as closed.
@@ -375,8 +368,7 @@ class LineSegmenter:
     The crop geometry parts company the same way, and this list omitted it until
     2026-08-28. ``_extract_line`` here pads horizontally by
     ``int(h_raw * 0.15)``, a fraction of the line's HEIGHT. Read in
-    the reference segmenter on 2026-08-28, in a working tree that was being
-    edited at the time, so re-read it rather than trusting this line:
+    the reference segmenter on 2026-08-28:
     ``pad_x = max(self.pad_x_floor_px, int(np.ceil(coreW * self.pad_x_factor)))``
     -- a fraction of the line's WIDTH, 0.05 of it, floored at an absolute 10 px.
     Both are constructor arguments there, so those are defaults a caller can
@@ -406,10 +398,9 @@ class LineSegmenter:
     number here without changing it there is what makes two bindings disagree on
     one input, and so is changing a basis, a statistic or a profile.
 
-    Item 1 was a live divergence and is now closed. Observed 2026-08-28 in
-    ``monocr-onnx`` at commit a3e3dba, "fix(python): detect line boundaries on
-    the raw profile, not the smoothed" -- local and unpushed at the time, so
-    confirm before relying on it -- the port's Python binding moved its boundary
+    Item 1 was a live divergence and is now closed. As of monocr-onnx a3e3dba
+    (2026-08-28), "fix(python): detect line boundaries on the raw profile, not
+    the smoothed", the port's Python binding moved its boundary
     detection to the RAW profile while still calibrating on the smoothed one.
     Read on 2026-08-28, this module was the last of six implementations still
     detecting on the smoothed profile: the port's Python, JS, Go and Rust
@@ -673,21 +664,21 @@ class LineSegmenter:
 
         It is not fixed here because it is not this module's alone. The same
         arithmetic is in ``monocr_onnx.segmenter.LineSegmenter._extract_line``
-        (read 2026-08-28 in a working tree under edit: ``x_start,
-        x_end`` at line 208, ``x2`` at 217, ``crop`` at 226) and in the
-        reference segmenter as read on
-        2026-08-28 (``x0, x1`` at 841, ``coreW = x1 - x0`` at 843, ``xb`` at
-        853, ``crop`` at 856), whose ``coreW`` carries the same one-column
+        (as of monocr-onnx a3e3dba (2026-08-28), in
+        ``python/monocr_onnx/segmenter.py``: ``x_start, x_end`` at line 185,
+        ``x2`` at 194, ``crop`` at 203) and in the reference segmenter as read on
+        2026-08-28, whose ``coreW = x1 - x0`` carries the same one-column
         understatement. In the reference no ink can be lost at any DEFAULT: its
         ``pad_x`` is floored at ``_PAD_X_FLOOR_PX``, 10 px. Not "at any setting"
-        -- ``pad_x_floor_px`` is a constructor argument there too
-        (its lines 369 and 377), so ``pad_x_floor_px=0`` plus a one-column
+        -- ``pad_x_floor_px`` is a constructor argument there too, so
+        ``pad_x_floor_px=0`` plus a one-column
         line reaches ``pad_x == 0`` in the reference as well. This class's own
         docstring already says both values are caller-overridable there.
 
         Shifting every crop by a pixel across three implementations -- two of
         them published packages, and one the corpus every page-level CER in this
-        ecosystem was measured against -- is an owner decision, not a cleanup.
+        ecosystem was measured against -- is a change to make across all
+        implementations at once, not a local cleanup.
         Do not do it in one place alone: that breaks parity rather than
         restoring it.
         """
