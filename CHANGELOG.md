@@ -1,3 +1,8 @@
+<!--
+Changelog entries: each entry says what changed and how to upgrade.
+Measurements and the reasoning behind them go in the pull request.
+-->
+
 # Changelog
 
 ## 2.4.2 — 2026-10-01
@@ -535,3 +540,8 @@ index by one. Both faults were independently sufficient. All 315 decodable
 indices returned the wrong character, so the package answered Mon input with
 fluent-looking text in the wrong alphabet and raised nothing. Anyone who
 installed 2.1.0 through 2.1.2 got that.
+
+## Earlier releases
+
+Earlier releases (0.1.x–2.1.x): see the
+[PyPI release history](https://pypi.org/project/monocr/#history).
