@@ -10,7 +10,7 @@ from the [`monocr-onnx`](https://github.com/MonDevHub/monocr-onnx) SDK and the
 Optical character recognition for Mon (mnw) text: a Python package that runs
 locally on ONNX Runtime.
 
-Mon is classified as **vulnerable** in UNESCO's Atlas of the World's Languages
+Mon was listed as **vulnerable** in UNESCO's 2010 Atlas of the World's Languages
 in Danger. It is written in the Mon–Burmese script, so a Burmese recogniser will
 read a Mon page and return text, but not the right text. Ten of the 276
 characters this model emits are named for Mon in Unicode because Burmese does
