@@ -1,14 +1,11 @@
 # Mon OCR
 
-Part of the Mon OCR toolchain; see [how the pieces fit](https://github.com/MonDevHub).
-This is a separate Python-only package with its own line segmentation, distinct
-from the [`monocr-onnx`](https://github.com/MonDevHub/monocr-onnx) SDK and the
-[apps](https://github.com/MonDevHub/monocr).
-
 [![PyPI](https://img.shields.io/pypi/v/monocr.svg)](https://pypi.org/project/monocr/)
 
 Optical character recognition for Mon (mnw) text: a Python package that runs
-locally on ONNX Runtime.
+locally on ONNX Runtime. It is part of the Mon OCR toolchain
+([how the pieces fit](https://github.com/MonDevHub)) and has its own line
+segmentation.
 
 Mon was listed as **vulnerable** in UNESCO's 2010 Atlas of the World's Languages
 in Danger. It is written in the Mon–Burmese script, so a Burmese recogniser will
@@ -115,6 +112,7 @@ and worse from four; for longer lines, cut them at word gaps and call
 - [monocr-onnx](https://github.com/MonDevHub/monocr-onnx) — the same model with
   Python (`pip install monocr-onnx`), JavaScript, Go and Rust bindings. Its line
   segmenters differ from this package's, so page output can differ.
+- [The apps](https://github.com/MonDevHub/monocr) built on the toolchain.
 - [Changelog](https://github.com/janakhpon/monocr/blob/main/CHANGELOG.md)
 
 ## Development
@@ -124,38 +122,12 @@ uv sync
 uv run pytest
 ```
 
-### Segmentation and model changes: A/B first, ship only if better
-
-A change that can alter the text this package returns ships only with an A/B comparison, and
-only if it is better. That covers the segmenter or its constants, tiling, preprocessing, decoding,
-and a new model revision.
-
-- **Two arms, same inputs.** A is the current code, B is the change. Nothing else differs between
-  them: same images, same model revision, same settings.
-- **Decide what counts as better before running.** Name the primary metric (usually CER, or for
-  segmentation, lines found, missed and merged) and the guard metrics, and state the result that
-  would ship B.
-- **Ship only if B wins the primary metric and loses no guard metric.** A tie or an unclear result
-  does not ship. If the change is still worth keeping, it goes behind an option that is off by
-  default.
-- **Put the result in the pull request:** the inputs, both arms' numbers, any per-bucket split (for
-  example by line width), the exact command, and what the comparison doesn't cover.
-
-### Releasing
-
-`pyproject.toml` holds the only version in the tree; `monocr.__version__` reads
-it back from the installed metadata. The tag has to match it, and the release
-workflow fails the build if it does not.
-
-```bash
-uv version --bump patch          # or minor / major
-git commit -am "release: $(uv version --short)"
-git tag "v$(uv version --short)"
-git push origin HEAD --tags
-```
-
-Publishing runs from the tag, through GitHub Actions, using PyPI trusted
-publishing. It installs from the lockfile and runs the test suite first.
+- A change that can alter the text this package returns (segmentation,
+  preprocessing, decoding or a new model revision) ships only with an A/B
+  comparison that shows it is better:
+  [docs/changing-output.md](https://github.com/janakhpon/monocr/blob/main/docs/changing-output.md).
+- Releases are cut from a version tag and published by GitHub Actions:
+  [docs/releasing.md](https://github.com/janakhpon/monocr/blob/main/docs/releasing.md).
 
 ## License
 
