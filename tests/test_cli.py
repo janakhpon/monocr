@@ -136,8 +136,8 @@ def test_batch_names_unreadable_files_and_exits_nonzero(runner, make_ocr, monkey
     result = runner.invoke(main, ["batch", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "Could not read 1 of 2 images" in result.stderr
-    assert "broken.png" in result.stderr
+    assert "Could not read 1 of 2 images" in result.output
+    assert "broken.png" in result.output
     assert "All done" not in result.output
 
 

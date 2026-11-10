@@ -5,6 +5,20 @@ Measurements and the reasoning behind them go in the pull request.
 
 # Changelog
 
+## Unreleased
+
+Behaviour changes; the version number is chosen at release.
+
+- **Recognised text is returned in Unicode NFC.** Decoded output is normalised, so
+  the same line always yields the same code points.
+- **`monocr batch` reports unreadable files.** Each one is named on stderr, the
+  summary says how many could not be read, and the command exits 1 instead of
+  finishing "All done!" with exit 0.
+- **`read_from_folder` takes an `errors` keyword argument** for collecting
+  unreadable files rather than returning an empty string for them.
+- **The model is pinned to its full 40-character commit**, and the bundled
+  charset's sha256 is checked by a test.
+
 ## 2.4.2 — 2026-10-01
 
 Documentation and comments only; no behaviour change. No code path changed and
