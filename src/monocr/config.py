@@ -30,9 +30,10 @@ DEFAULT_MODEL_PATH = CACHE_DIR / MODEL_FILENAME
 # every re-upload to the model repository silently changes what an installed
 # copy of this package downloads — including changing the class count out from
 # under the bundled charset. Bump this deliberately, together with the charset
-# below and a release.
+# below and a release. The full 40-character commit hash, not the short form
+# that docs and the changelog use for readability.
 HF_REPO_ID = "janakhpon/monocr"
-HF_REVISION = "d3d9d5e"
+HF_REVISION = "d3d9d5e6963e32fb6ea2d3c0b67fe8a94f240392"
 HF_FILENAME = "onnx/monocr.onnx"
 
 # The charset published beside the weights at that same revision. It is

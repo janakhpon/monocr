@@ -37,10 +37,11 @@ def test_the_model_revision_is_a_pin_and_never_a_branch():
     This package makes the same argument and shipped without the same test.
     """
     revision = config.HF_REVISION
-    assert re.fullmatch(r"[0-9a-f]{7,40}", revision), (
-        f"HF_REVISION is {revision!r}, which is not a commit hash. A branch or "
-        "tag name here means an installed copy re-downloads whatever the model "
-        "repository points at today."
+    assert re.fullmatch(r"[0-9a-f]{40}", revision), (
+        f"HF_REVISION is {revision!r}, which is not a full 40-character commit "
+        "hash. A branch or tag name here means an installed copy re-downloads "
+        "whatever the model repository points at today, and a short hash is "
+        "only a pin for as long as it stays unambiguous and the Hub resolves it."
     )
     assert revision not in {"main", "master", "HEAD"}
 
