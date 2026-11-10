@@ -33,6 +33,30 @@ def test_the_bundled_charset_matches_the_pinned_model(bundled_charset):
     assert len(bundled_charset) == 276
 
 
+# sha256 of `onnx/charset.txt` in janakhpon/monocr at the pinned revision, which
+# is byte-identical to the bundled valid_chars.txt.
+PINNED_CHARSET_SHA256 = (
+    "edfd75f688e4155c64aeee0dbac755da0e7ba45a388a2d178a84190fb3d7e953"
+)
+
+
+def test_the_bundled_charset_is_byte_identical_to_the_pinned_one():
+    """A length check passes for any 276 characters in any order.
+
+    Two characters swapped, or one replaced, keeps the length and decodes those
+    indices to the wrong character without raising. The bundled file is the
+    offline fallback for the pinned revision, so it must be that revision's file
+    exactly. Bump this together with config.HF_REVISION.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(config.CHARSET_PATH.read_bytes()).hexdigest()
+    assert digest == PINNED_CHARSET_SHA256, (
+        f"valid_chars.txt hashes to {digest}, not the charset published at "
+        f"revision {config.HF_REVISION}."
+    )
+
+
 def test_the_charset_starts_with_a_space_and_stripping_keeps_it():
     raw = open(config.CHARSET_PATH, encoding="utf-8").read()
     assert raw[0] == " ", "the first class is U+0020"
