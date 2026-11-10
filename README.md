@@ -82,7 +82,8 @@ monocr download              # fetch the model ahead of time
 ```
 
 Both `read` and `batch` segment each image as a page. For line crops, call
-`predict_line` from Python.
+`predict_line` from Python. `batch` names any file it could not read on stderr
+and exits 1.
 
 ## Examples
 

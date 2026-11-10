@@ -73,17 +73,27 @@ def batch(folder_path):
     """Process a folder of images."""
     try:
         ocr = MonOCR()
-        results = ocr.read_from_folder(folder_path)
+        failures = {}
+        results = ocr.read_from_folder(folder_path, errors=failures)
         if not results:
             click.echo("No images found in that folder, buddy.")
             return
-        
+
         click.echo(f"Found {len(results)} images. Starting now...")
         for path, text in sorted(results.items()):
             if text.strip():
                 click.echo(f"--- {path} ---")
                 click.echo(text)
                 click.echo("")
+        # A file that could not be read is a failure, not an image with no
+        # text, so it is named and the exit status says so.
+        if failures:
+            click.echo(
+                f"Could not read {len(failures)} of {len(results)} images:", err=True
+            )
+            for path, error in sorted(failures.items()):
+                click.echo(f"  {path}: {error}", err=True)
+            sys.exit(1)
         click.echo("All done!")
     except MonOCRError as e:
         logging.error(f"Batch processing error: {e}")

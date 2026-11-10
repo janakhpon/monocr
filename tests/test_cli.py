@@ -28,7 +28,7 @@ class StubOCR:
     def predict_with_confidence(self, path):
         return {"text": self.text, "confidence": self.confidence}
 
-    def read_from_folder(self, path):
+    def read_from_folder(self, path, errors=None):
         return self.folder
 
 
@@ -121,6 +121,24 @@ def test_batch_says_so_on_an_empty_folder(runner, monkeypatch, tmp_path):
     result = runner.invoke(main, ["batch", str(tmp_path)])
     assert result.exit_code == 0
     assert "No images found" in result.output
+
+
+def test_batch_names_unreadable_files_and_exits_nonzero(runner, make_ocr, monkeypatch, tmp_path):
+    """An unreadable file used to come back as "" and the run ended "All done!"
+    with exit 0 -- indistinguishable from an image with no text in it."""
+    from PIL import Image
+
+    Image.new("L", (200, 100), 255).save(tmp_path / "good.png")
+    (tmp_path / "broken.png").write_text("not a png")
+    ocr = make_ocr()
+    monkeypatch.setattr("monocr.cli.MonOCR", lambda: ocr)
+
+    result = runner.invoke(main, ["batch", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Could not read 1 of 2 images" in result.stderr
+    assert "broken.png" in result.stderr
+    assert "All done" not in result.output
 
 
 def test_batch_rejects_a_file_where_a_folder_is_required(runner, stub, image):

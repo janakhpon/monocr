@@ -271,11 +271,22 @@ class MonOCR:
     def read_text(self, image: Union[str, Image.Image, Path]) -> str:
         return self.predict(image)
 
-    def read_from_folder(self, folder_path: str, extensions: Optional[List[str]] = None) -> Dict[str, str]:
+    def read_from_folder(
+        self,
+        folder_path: str,
+        extensions: Optional[List[str]] = None,
+        errors: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        """Read every matching image in `folder_path`, keyed by filename.
+
+        A file that cannot be read maps to "", which looks the same as an image
+        with no text in it. Pass a dict as `errors` to tell the two apart: each
+        failure is recorded there as filename -> error message.
+        """
         import glob
         if extensions is None:
             extensions = ['*.png', '*.jpg', '*.jpeg']
-        
+
         results = {}
         for ext in extensions:
             for img_path in glob.glob(os.path.join(folder_path, ext)):
@@ -284,6 +295,8 @@ class MonOCR:
                 except Exception as e:
                     logger.warning(f"Failed to process {img_path}: {e}")
                     results[os.path.basename(img_path)] = ""
+                    if errors is not None:
+                        errors[os.path.basename(img_path)] = str(e)
         return results
 
     def predict_batch(self, images: List[Union[str, Image.Image, Path]]) -> List[str]:

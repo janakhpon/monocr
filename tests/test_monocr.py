@@ -140,6 +140,20 @@ def test_read_from_folder_records_an_empty_string_for_a_file_it_cannot_read(
     assert ocr.read_from_folder(str(tmp_path)) == {"broken.png": ""}
 
 
+def test_read_from_folder_reports_unreadable_files_when_asked(make_ocr, tmp_path):
+    """"" alone cannot tell a failure from a blank image; `errors` can."""
+    ocr = make_ocr()
+    Image.new("L", (200, 100), 255).save(tmp_path / "blank.png")
+    (tmp_path / "broken.png").write_text("not a png")
+
+    errors = {}
+    results = ocr.read_from_folder(str(tmp_path), errors=errors)
+
+    assert results == {"blank.png": "", "broken.png": ""}
+    assert set(errors) == {"broken.png"}
+    assert errors["broken.png"]
+
+
 def test_predict_batch_returns_one_result_per_image(make_ocr):
     ocr = make_ocr()
     images = [Image.new("L", (200, 100), 255) for _ in range(3)]
