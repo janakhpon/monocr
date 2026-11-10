@@ -333,6 +333,24 @@ MUTATIONS = [
         "        )",
         '        charset = "skipped"',
     ),
+    (
+        "_decode stops normalising its output to NFC",
+        "src/monocr/ocr.py",
+        'return unicodedata.normalize("NFC", "".join(text))',
+        'return "".join(text)',
+    ),
+    (
+        "read_from_folder stops recording failures in `errors`",
+        "src/monocr/ocr.py",
+        "errors[os.path.basename(img_path)] = str(e)",
+        "pass",
+    ),
+    (
+        "batch prints \"All done!\" and exits 0 despite unreadable files",
+        "src/monocr/cli.py",
+        "            sys.exit(1)\n        click.echo(\"All done!\")",
+        "        click.echo(\"All done!\")",
+    ),
 ]
 
 

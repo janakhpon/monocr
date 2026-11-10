@@ -95,3 +95,13 @@ def test_decoding_does_not_depend_on_the_index_dtype(make_ocr, dtype):
     """argmax returns int64 on most platforms and int32 on some."""
     ocr = decoder(make_ocr, " abc")
     assert ocr._decode(np.array([2, 0, 3], dtype=dtype)) == "ab"
+
+
+def test_output_is_nfc_normalised(make_ocr):
+    """U+1025 then U+102E is the canonical decomposition of U+1026.
+
+    The training labels are NFC, so a decode that returns the decomposed pair
+    reads the same on screen but compares unequal to every reference.
+    """
+    ocr = decoder(make_ocr, " \u1025\u102e")
+    assert ocr._decode(np.array([2, 0, 3])) == "\u1026"

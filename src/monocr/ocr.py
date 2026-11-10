@@ -1,4 +1,5 @@
 import os
+import unicodedata
 import onnxruntime as ort
 import numpy as np
 import logging
@@ -371,7 +372,13 @@ class MonOCR:
         return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
 
     def _decode(self, indices: np.ndarray) -> str:
-        """Greedy CTC decoding."""
+        """Greedy CTC decoding, returned in Unicode NFC.
+
+        The charset holds both U+1026 and its canonical decomposition, U+1025
+        U+102E, so the model can emit either spelling of the same letter. The
+        training code normalises its labels and its predictions to NFC, so this
+        does too; otherwise identical-looking text compares unequal.
+        """
         text = []
         prev_idx = 0
         for idx in indices:
@@ -379,4 +386,4 @@ class MonOCR:
                 if 0 < idx <= len(self.charset):
                     text.append(self.charset[idx-1])
             prev_idx = idx
-        return "".join(text)
+        return unicodedata.normalize("NFC", "".join(text))
